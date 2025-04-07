@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use nix::{cmsg_space, sys::{mman, socket, time::TimeSpec}};
+use nix::{cmsg_space, sys::{mman, resource, socket, time::TimeSpec}};
 use nix::time::{ClockId, ClockNanosleepFlags, clock_gettime, clock_nanosleep};
 
 static CLOCK: ClockId = ClockId::CLOCK_REALTIME;
@@ -105,6 +105,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut t = clock_gettime(CLOCK)?;
     let mut seq: u32 = 0;
 
+    let rusage_pre = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
+
     'send: loop {
 	t = match receiver.recv() {
 	    Ok(next) => t + next,
@@ -137,5 +139,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     // wait a moment for pending echos
     thread::sleep(Duration::from_millis(500));
+    let rusage_post = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
+    eprintln!(
+	"major page faults: {}, minor page faults: {}",
+	rusage_post.major_page_faults() - rusage_pre.major_page_faults(),
+	rusage_post.minor_page_faults() - rusage_pre.minor_page_faults()
+    );
     Result::Ok(())
 }
