@@ -1,9 +1,9 @@
 use luna_rs;
-use nix::sys::socket::SockaddrIn6;
+use nix::sys::socket::SockaddrStorage;
 
 use std::io::{Error, IoSlice, IoSliceMut};
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::os::fd::AsRawFd;
-use std::str::FromStr;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -22,24 +22,24 @@ fn generator(target: mpsc::Sender<TimeSpec>) {
 }
 
 
-fn echo_log(sock: i32, max_len: usize, server: Option<SockaddrIn6>) -> Result<(), Error> {
+fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> {
     let flags = socket::MsgFlags::empty();
     let mut buffer = vec![0u8; max_len];
     let mut cmsgspace = cmsg_space!(TimeSpec);
     let mut iov = [IoSliceMut::new(&mut buffer)];
+    let server_addr = SockaddrStorage::from(server);
 
     println!("ktime\ttimestamp\tsequence\tsize");
     loop {
-	let r = socket::recvmsg::<socket::SockaddrIn6>(sock.as_raw_fd(), &mut iov, Some(&mut cmsgspace), flags)?;
+	let r = socket::recvmsg::<socket::SockaddrStorage>(
+	    sock.as_raw_fd(), &mut iov, Some(&mut cmsgspace), flags)?;
 	let data = r.iovs().next().unwrap();
 
 	if let Some(socket::ControlMessageOwned::ScmTimestampns(rtime)) = r.cmsgs()?.next() {
-	    if let Some(s) = server {
-		let addr = r.address.as_ref().unwrap();
-		if addr != &s {
-		    // wrong source
-		    continue;
-		}
+	    let addr = r.address.as_ref().unwrap();
+	    if addr != &server_addr {
+		// wrong source
+		continue;
 	    }
 	    if r.bytes < luna_rs::MIN_SIZE {
 		eprintln!("received packet is too short");
@@ -61,7 +61,11 @@ fn echo_log(sock: i32, max_len: usize, server: Option<SockaddrIn6>) -> Result<()
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: should be configurable
     let echo = true;
-    let server = socket::SockaddrIn6::from_str("[::1]:7800")?;
+    let server_details = "localhost:7800";
+    let server: SocketAddr = server_details
+	.to_socket_addrs()
+	.expect("cannot parse server address")
+	.next().expect("no address");
 
     // prevent swapping, if possible
     if let Err(e) = mman::mlockall(
@@ -75,13 +79,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let sock = socket::socket(
-	socket::AddressFamily::Inet6,
+	if server.is_ipv6() {
+	    socket::AddressFamily::Inet6
+	} else {
+	    socket::AddressFamily::Inet
+	},
 	socket::SockType::Datagram,
 	socket::SockFlag::empty(),
 	None
     )?;
     socket::setsockopt(&sock, socket::sockopt::ReceiveTimestampns, &true)?;
-    socket::connect(sock.as_raw_fd(), &server)?;
+    socket::connect(sock.as_raw_fd(), &SockaddrStorage::from(server))?;
 
     let flags = socket::MsgFlags::empty();
     let mut buffer = vec![0u8; luna_rs::MIN_SIZE];
@@ -92,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (sender, receiver) = mpsc::channel::<TimeSpec>();
     thread::spawn(move || generator(sender));
     let s = sock.as_raw_fd();
-    thread::spawn(move || echo_log(s, luna_rs::MIN_SIZE, Some(server)));
+    thread::spawn(move || echo_log(s, luna_rs::MIN_SIZE, server));
 
     let mut t = clock_gettime(CLOCK)?;
     let mut seq: u32 = 0;
@@ -117,7 +125,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	buffer.splice(12..20, current.tv_nsec().to_be_bytes());
 
 	let iov = [IoSlice::new(&buffer)];
-	socket::sendmsg(sock.as_raw_fd(), &iov, &[], flags, Some(&server))?;
+	socket::sendmsg(
+	    sock.as_raw_fd(), &iov, &[], flags,
+	    Option::<&SockaddrStorage>::None)?;
 	#[cfg(debug_assertions)]
 	eprintln!("sent {}: {:?}", seq, buffer);
 
