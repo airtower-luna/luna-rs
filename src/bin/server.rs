@@ -18,6 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmsgspace = cmsg_space!(TimeSpec);
     let mut iov = [IoSliceMut::new(&mut buffer)];
 
+    println!("ktime\tsource\tport\tsequence\tsize");
     loop {
 	let r = socket::recvmsg::<socket::SockaddrIn6>(sock.as_raw_fd(), &mut iov, Some(&mut cmsgspace), flags)?;
 	let data = r.iovs().next().unwrap();
@@ -32,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		// no valid sequence number
 		-1
 	    };
-	    println!("{}.{}\t{}\t{}\t{}\t{}", rtime.tv_sec(), rtime.tv_nsec(), addr.ip(), addr.port(), seq, r.bytes);
+	    println!("{}.{:09}\t{}\t{}\t{}\t{}", rtime.tv_sec(), rtime.tv_nsec(), addr.ip(), addr.port(), seq, r.bytes);
 	}
     }
 }
