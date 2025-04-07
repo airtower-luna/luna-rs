@@ -45,7 +45,12 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
     println!("ktime\ttimestamp\tsequence\tsize");
     loop {
 	let r = socket::recvmsg::<socket::SockaddrStorage>(
-	    sock.as_raw_fd(), &mut iov, Some(&mut cmsgspace), flags)?;
+	    sock, &mut iov, Some(&mut cmsgspace), flags)?;
+	if r.bytes == 0 {
+	    // We get a zero bytes packet when the socket has been
+	    // shut down for reading.
+	    break;
+	}
 	let data = r.iovs().next().unwrap();
 
 	if let Some(socket::ControlMessageOwned::ScmTimestampns(rtime)) = r.cmsgs()?.next() {
@@ -68,6 +73,7 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
 	    println!("{}.{:09}\t{}.{:09}\t{}\t{}", rtime.tv_sec(), rtime.tv_nsec(), stamp.tv_sec(), stamp.tv_nsec(), seq, r.bytes);
 	}
     }
+    Ok(())
 }
 
 
@@ -104,10 +110,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (sender, receiver) = mpsc::channel::<TimeSpec>();
     thread::spawn(move || generator(sender));
-    if echo {
+    let et = if echo {
 	let s = sock.as_raw_fd();
-	thread::spawn(move || echo_log(s, luna_rs::MIN_SIZE, server));
-    }
+	Some(thread::spawn(move || echo_log(s, luna_rs::MIN_SIZE, server)))
+    } else {
+	None
+    };
 
     // Prevent swapping, if possible. Needs to be done after starting
     // threads because otherwise it'll fail if there's not enough
@@ -154,8 +162,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	seq += 1;
 	buffer.splice(0..4, seq.to_be_bytes());
     }
-    // wait a moment for pending echos
+
+    socket::shutdown(sock.as_raw_fd(), socket::Shutdown::Write)?;
+    // wait a little longer for pending echos
     thread::sleep(Duration::from_millis(500));
+    socket::shutdown(sock.as_raw_fd(), socket::Shutdown::Read)?;
+    if let Some(t) = et {
+	if let Err(e) = t.join() {
+	    eprintln!("{e:?}");
+	};
+    }
+
     let rusage_post = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
     eprintln!(
 	"major page faults: {}, minor page faults: {}",
