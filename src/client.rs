@@ -131,7 +131,7 @@ pub fn run(server: SocketAddr, buffer_size: usize, echo: bool) -> Result<(), Box
 		buffer.splice(4..12, current.tv_sec().to_be_bytes());
 		buffer.splice(12..20, current.tv_nsec().to_be_bytes());
 
-		let iov = [IoSlice::new(&buffer[..next.size])];
+		let iov = [IoSlice::new(&buffer[..buffer_size.min(next.size)])];
 		socket::sendmsg(
 			sock.as_raw_fd(), &iov, &[], flags,
 			Option::<&SockaddrStorage>::None)?;
