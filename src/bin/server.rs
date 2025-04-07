@@ -1,5 +1,9 @@
-use nix::{cmsg_space, sys::{socket, time::TimeSpec}};
+use nix::{cmsg_space, libc::timespec, sys::{socket, time::TimeSpec}};
 use std::{io::{IoSlice, IoSliceMut}, os::fd::AsRawFd, str::FromStr};
+
+const ECHO_FLAG: u8 = 1;
+const MIN_SIZE: usize = size_of::<u32>() + size_of::<timespec>() + size_of::<u8>();
+
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_len = 1500;
@@ -22,8 +26,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
 	let r = socket::recvmsg::<socket::SockaddrIn6>(sock.as_raw_fd(), &mut iov, Some(&mut cmsgspace), flags)?;
 	let data = r.iovs().next().unwrap();
-	let iov = [IoSlice::new(data)];
-	socket::sendmsg(sock.as_raw_fd(), &iov, &[], flags, r.address.as_ref())?;
+
+	// send echo if requested
+	if r.bytes >= MIN_SIZE && 0 != (data[20] & ECHO_FLAG) {
+	    let iov = [IoSlice::new(data)];
+	    socket::sendmsg(sock.as_raw_fd(), &iov, &[], flags, r.address.as_ref())?;
+	}
+
 	if let Some(socket::ControlMessageOwned::ScmTimestampns(rtime)) = r.cmsgs()?.next() {
 	    let addr = r.address.as_ref().unwrap();
 	    let seq = if r.bytes >= size_of::<i32>() {
