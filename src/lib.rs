@@ -17,7 +17,7 @@ macro_rules! parse_int {
 }
 
 
-/// Enable realtime scheduling for the current process. The offset is
+/// Enable realtime scheduling for the current thread. The offset is
 /// the priority relative to the minimum realtime priority. Requires
 /// CAP_SYS_NICE capability.
 pub fn set_rt_prio(offset: i32) -> Result<(), Error> {
