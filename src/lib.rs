@@ -1,4 +1,4 @@
-use nix::libc::timespec;
+use nix::{libc::timespec, sys::time::TimeSpec};
 use std::io::Error;
 
 pub const ECHO_FLAG: u8 = 1;
@@ -18,6 +18,12 @@ macro_rules! parse_int {
 		let parsed = <$t>::from_be_bytes(b.try_into().unwrap());
 		(parsed, rest)
 	}};
+}
+
+
+pub struct PacketData {
+	pub delay: TimeSpec,
+	pub size: usize,
 }
 
 

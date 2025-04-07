@@ -1,4 +1,4 @@
-use crate::{parse_int, set_rt_prio, ECHO_FLAG, MIN_SIZE};
+use crate::{parse_int, set_rt_prio, PacketData, ECHO_FLAG, MIN_SIZE};
 
 use nix::sys::socket::SockaddrStorage;
 
@@ -15,10 +15,10 @@ use nix::time::{ClockId, ClockNanosleepFlags, clock_gettime, clock_nanosleep};
 static CLOCK: ClockId = ClockId::CLOCK_REALTIME;
 
 
-fn generator(target: mpsc::Sender<TimeSpec>) {
+fn generator(target: mpsc::Sender<PacketData>) {
 	let step = TimeSpec::new(0, 500000000);
 	for _ in 0..10 {
-		target.send(step).unwrap();
+		target.send(PacketData { delay: step, size: MIN_SIZE * 2 }).unwrap();
 	}
 }
 
@@ -62,7 +62,7 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
 }
 
 
-pub fn run(server: SocketAddr, echo: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(server: SocketAddr, buffer_size: usize, echo: bool) -> Result<(), Box<dyn std::error::Error>> {
 	if let Err(err) = set_rt_prio(20) {
 		eprintln!("could not set realtime priority: {}", err);
 	}
@@ -81,16 +81,16 @@ pub fn run(server: SocketAddr, echo: bool) -> Result<(), Box<dyn std::error::Err
 	socket::connect(sock.as_raw_fd(), &SockaddrStorage::from(server))?;
 
 	let flags = socket::MsgFlags::empty();
-	let mut buffer = vec![0u8; MIN_SIZE];
+	let mut buffer = vec![0u8; buffer_size];
 	if echo {
 		buffer[20] = ECHO_FLAG;
 	}
 
-	let (sender, receiver) = mpsc::channel::<TimeSpec>();
+	let (sender, receiver) = mpsc::channel::<PacketData>();
 	thread::spawn(move || generator(sender));
 	let et = if echo {
 		let s = sock.as_raw_fd();
-		Some(thread::spawn(move || echo_log(s, MIN_SIZE, server)))
+		Some(thread::spawn(move || echo_log(s, buffer_size, server)))
 	} else {
 		None
 	};
@@ -111,10 +111,12 @@ pub fn run(server: SocketAddr, echo: bool) -> Result<(), Box<dyn std::error::Err
 	let rusage_pre = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
 
 	'send: loop {
-		t = match receiver.recv() {
-			Ok(next) => t + next,
+		let next = match receiver.recv() {
+			Ok(next) => next,
 			Err(mpsc::RecvError) => {break 'send;}
 		};
+		t = t + next.delay;
+
 		loop {
 			match clock_nanosleep(CLOCK, ClockNanosleepFlags::TIMER_ABSTIME, &t) {
 				Ok(_) => break,
@@ -129,7 +131,7 @@ pub fn run(server: SocketAddr, echo: bool) -> Result<(), Box<dyn std::error::Err
 		buffer.splice(4..12, current.tv_sec().to_be_bytes());
 		buffer.splice(12..20, current.tv_nsec().to_be_bytes());
 
-		let iov = [IoSlice::new(&buffer)];
+		let iov = [IoSlice::new(&buffer[..next.size])];
 		socket::sendmsg(
 			sock.as_raw_fd(), &iov, &[], flags,
 			Option::<&SockaddrStorage>::None)?;
