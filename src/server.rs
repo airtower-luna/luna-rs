@@ -1,36 +1,11 @@
-use clap::Parser;
-use luna_rs;
+use crate::{ECHO_FLAG, MIN_SIZE, parse_int, set_rt_prio};
 use nix::{cmsg_space, sys::{mman, socket::{self, SockaddrLike, SockaddrStorage}, time::TimeSpec}};
-use std::{io::{Error, ErrorKind, IoSlice, IoSliceMut}, net::{IpAddr, SocketAddrV4, SocketAddrV6}, os::fd::AsRawFd};
+use std::{io::{Error, ErrorKind, IoSlice, IoSliceMut}, os::fd::AsRawFd};
 
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-pub struct Args {
-	/// port to listen on
-	#[arg(short, long, default_value_t = 7800)]
-	pub port: u16,
-	/// local address to bind to for listening
-	#[arg(short, long, default_value = "::")]
-	pub bind: IpAddr,
-	/// size of the receive buffer, larger incoming packets will be
-	/// truncated
-	#[arg(short, long, default_value_t = 1500)]
-	pub recv_size: usize,
-}
-
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let args = Args::parse();
-	let max_len = args.recv_size;
-	let bind_addr: SockaddrStorage = if args.bind.is_ipv6() {
-		let s = format!("[{}]:{}", args.bind, args.port);
-		SockaddrStorage::from(s.parse::<SocketAddrV6>()?)
-	} else {
-		let s = format!("{}:{}", args.bind, args.port);
-		SockaddrStorage::from(s.parse::<SocketAddrV4>()?)
-	};
-
+pub fn run(bind_addr: SockaddrStorage, buf_size: usize)
+		   -> Result<(), Box<dyn std::error::Error>>
+{
 	// prevent swapping, if possible
 	if let Err(e) = mman::mlockall(
 		mman::MlockAllFlags::MCL_CURRENT
@@ -38,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		eprintln!("could not lock memory: {}", e);
 	}
 
-	if let Err(err) = luna_rs::set_rt_prio(20) {
+	if let Err(err) = set_rt_prio(20) {
 		eprintln!("could not set realtime priority: {}", err);
 	}
 
@@ -52,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	socket::bind(sock.as_raw_fd(), &bind_addr)?;
 
 	let flags = socket::MsgFlags::empty();
-	let mut buffer = vec![0u8; max_len];
+	let mut buffer = vec![0u8; buf_size];
 	let mut cmsgspace = cmsg_space!(TimeSpec);
 	let mut iov = [IoSliceMut::new(&mut buffer)];
 
@@ -62,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let data = r.iovs().next().unwrap();
 
 		// send echo if requested
-		if r.bytes >= luna_rs::MIN_SIZE && 0 != (data[20] & luna_rs::ECHO_FLAG) {
+		if r.bytes >= MIN_SIZE && 0 != (data[20] & ECHO_FLAG) {
 			let iov = [IoSlice::new(data)];
 			socket::sendmsg(sock.as_raw_fd(), &iov, &[], flags, r.address.as_ref())?;
 		}
@@ -77,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				return Err(Box::new(Error::new(ErrorKind::Unsupported, "unsupported address type")));
 			}};
 			let seq = if r.bytes >= size_of::<i32>() {
-				luna_rs::parse_int!(data, i32).0
+				parse_int!(data, i32).0
 			} else {
 				// no valid sequence number
 				-1

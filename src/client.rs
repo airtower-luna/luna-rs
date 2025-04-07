@@ -1,9 +1,9 @@
-use clap::Parser;
-use luna_rs;
+use crate::{parse_int, set_rt_prio, ECHO_FLAG, MIN_SIZE};
+
 use nix::sys::socket::SockaddrStorage;
 
 use std::io::{Error, IoSlice, IoSliceMut};
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::os::fd::AsRawFd;
 use std::sync::mpsc;
 use std::thread;
@@ -13,18 +13,6 @@ use nix::{cmsg_space, sys::{mman, resource, socket, time::TimeSpec}};
 use nix::time::{ClockId, ClockNanosleepFlags, clock_gettime, clock_nanosleep};
 
 static CLOCK: ClockId = ClockId::CLOCK_REALTIME;
-
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-pub struct Args {
-	/// server to send to
-	#[arg(short, long, default_value = "localhost:7800")]
-	pub server: String,
-	/// request packet echo from server
-	#[arg(short, long)]
-	pub echo: bool,
-}
 
 
 fn generator(target: mpsc::Sender<TimeSpec>) {
@@ -59,13 +47,13 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
 				// wrong source
 				continue;
 			}
-			if r.bytes < luna_rs::MIN_SIZE {
+			if r.bytes < MIN_SIZE {
 				eprintln!("received packet is too short");
 				continue;
 			}
-			let (seq, rest) = luna_rs::parse_int!(data, i32);
-			let (sec, rest) = luna_rs::parse_int!(rest, i64);
-			let (nsec, _) = luna_rs::parse_int!(rest, i64);
+			let (seq, rest) = parse_int!(data, i32);
+			let (sec, rest) = parse_int!(rest, i64);
+			let (nsec, _) = parse_int!(rest, i64);
 			let stamp = TimeSpec::new(sec, nsec);
 			println!("{}.{:09}\t{}.{:09}\t{}\t{}", rtime.tv_sec(), rtime.tv_nsec(), stamp.tv_sec(), stamp.tv_nsec(), seq, r.bytes);
 		}
@@ -74,15 +62,8 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
 }
 
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let args = Args::parse();
-	let echo = args.echo;
-	let server: SocketAddr = args.server
-		.to_socket_addrs()
-		.expect("cannot parse server address")
-		.next().expect("no address");
-
-	if let Err(err) = luna_rs::set_rt_prio(20) {
+pub fn run(server: SocketAddr, echo: bool) -> Result<(), Box<dyn std::error::Error>> {
+	if let Err(err) = set_rt_prio(20) {
 		eprintln!("could not set realtime priority: {}", err);
 	}
 
@@ -100,16 +81,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	socket::connect(sock.as_raw_fd(), &SockaddrStorage::from(server))?;
 
 	let flags = socket::MsgFlags::empty();
-	let mut buffer = vec![0u8; luna_rs::MIN_SIZE];
+	let mut buffer = vec![0u8; MIN_SIZE];
 	if echo {
-		buffer[20] = luna_rs::ECHO_FLAG;
+		buffer[20] = ECHO_FLAG;
 	}
 
 	let (sender, receiver) = mpsc::channel::<TimeSpec>();
 	thread::spawn(move || generator(sender));
 	let et = if echo {
 		let s = sock.as_raw_fd();
-		Some(thread::spawn(move || echo_log(s, luna_rs::MIN_SIZE, server)))
+		Some(thread::spawn(move || echo_log(s, MIN_SIZE, server)))
 	} else {
 		None
 	};

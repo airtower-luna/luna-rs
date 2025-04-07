@@ -7,11 +7,3 @@ edition = '2024'
 clap = { version = '4', features = ['cargo', 'derive'] }
 libc = '0.2.171'
 nix = { version = '0.29.0', features = ['mman', 'net', 'resource', 'socket', 'time', 'uio'] }
-
-[[bin]]
-name = 'server'
-path = 'src/bin/server.rs'
-
-[[bin]]
-name = 'client'
-path = 'src/bin/client.rs'
