@@ -1,3 +1,4 @@
+use clap::Parser;
 use luna_rs;
 use nix::sys::socket::SockaddrStorage;
 
@@ -12,6 +13,18 @@ use nix::{cmsg_space, sys::{mman, resource, socket, time::TimeSpec}};
 use nix::time::{ClockId, ClockNanosleepFlags, clock_gettime, clock_nanosleep};
 
 static CLOCK: ClockId = ClockId::CLOCK_REALTIME;
+
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+pub struct Args {
+    /// server to send to
+    #[arg(short, long, default_value = "localhost:7800")]
+    pub server: String,
+    /// request packet echo from server
+    #[arg(short, long)]
+    pub echo: bool,
+}
 
 
 fn generator(target: mpsc::Sender<TimeSpec>) {
@@ -59,20 +72,12 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: should be configurable
-    let echo = true;
-    let server_details = "localhost:7800";
-    let server: SocketAddr = server_details
+    let args = Args::parse();
+    let echo = args.echo;
+    let server: SocketAddr = args.server
 	.to_socket_addrs()
 	.expect("cannot parse server address")
 	.next().expect("no address");
-
-    // prevent swapping, if possible
-    if let Err(e) = mman::mlockall(
-	mman::MlockAllFlags::MCL_CURRENT
-	    | mman::MlockAllFlags::MCL_FUTURE) {
-	eprintln!("could not lock memory: {}", e);
-    }
 
     if let Err(err) = luna_rs::set_rt_prio(20) {
 	eprintln!("could not set realtime priority: {}", err);
@@ -99,8 +104,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (sender, receiver) = mpsc::channel::<TimeSpec>();
     thread::spawn(move || generator(sender));
-    let s = sock.as_raw_fd();
-    thread::spawn(move || echo_log(s, luna_rs::MIN_SIZE, server));
+    if echo {
+	let s = sock.as_raw_fd();
+	thread::spawn(move || echo_log(s, luna_rs::MIN_SIZE, server));
+    }
+
+    // Prevent swapping, if possible. Needs to be done after starting
+    // threads because otherwise it'll fail if there's not enough
+    // memory to do so without going over the limit of what can be
+    // locked without CAP_IPC_LOCK.
+    if let Err(e) = mman::mlockall(
+	mman::MlockAllFlags::MCL_CURRENT
+	    | mman::MlockAllFlags::MCL_FUTURE) {
+	eprintln!("could not lock memory: {}", e);
+    }
 
     let mut t = clock_gettime(CLOCK)?;
     let mut seq: u32 = 0;
