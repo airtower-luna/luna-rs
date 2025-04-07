@@ -1,4 +1,4 @@
-use nix::{cmsg_space, libc::timespec, sys::{socket, time::TimeSpec}};
+use nix::{cmsg_space, libc::timespec, sys::{mman, socket, time::TimeSpec}};
 use std::{io::{IoSlice, IoSliceMut}, os::fd::AsRawFd, str::FromStr};
 
 const ECHO_FLAG: u8 = 1;
@@ -7,6 +7,14 @@ const MIN_SIZE: usize = size_of::<u32>() + size_of::<timespec>() + size_of::<u8>
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_len = 1500;
+
+    // prevent swapping, if possible
+    if let Err(e) = mman::mlockall(
+	mman::MlockAllFlags::MCL_CURRENT
+	    | mman::MlockAllFlags::MCL_FUTURE) {
+	eprintln!("could not lock memory: {}", e);
+    }
+
     let sock = socket::socket(
 	socket::AddressFamily::Inet6,
 	socket::SockType::Datagram,
