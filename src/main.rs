@@ -1,4 +1,4 @@
-use luna_rs::{client, server};
+use luna_rs::{client, generator::Generator, server};
 use clap::{Parser, Subcommand};
 use nix::sys::socket::SockaddrStorage;
 use std::net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs};
@@ -24,6 +24,9 @@ enum Commands {
 		/// request packet echo from server
 		#[arg(short, long, default_value_t = false)]
 		echo: bool,
+		/// generator selection
+		#[arg(short, long, value_enum, default_value = "default")]
+		generator: Generator,
 	},
 	Server {
 		/// port to listen on
@@ -41,12 +44,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	#[cfg(debug_assertions)]
 	eprintln!("{args:?}");
 	match args.command {
-		Commands::Client { server, echo} => {
+		Commands::Client { server, echo, generator } => {
+			let receiver = generator.run();
 			let server_addr: SocketAddr = server
 				.to_socket_addrs()
 				.expect("cannot parse server address")
 				.next().expect("no address");
-			client::run(server_addr, args.buffer_size, echo)?;
+			client::run(server_addr, args.buffer_size, echo, receiver)?;
 		},
 		Commands::Server { port, bind } => {
 			let bind_addr: SockaddrStorage = if bind.is_ipv6() {

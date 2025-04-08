@@ -6,6 +6,7 @@ pub const ECHO_FLAG: u8 = 1;
 pub const MIN_SIZE: usize = size_of::<u32>() + size_of::<timespec>() + size_of::<u8>();
 
 
+pub mod generator;
 pub mod client;
 pub mod server;
 
