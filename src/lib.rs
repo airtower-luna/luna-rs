@@ -141,6 +141,9 @@ mod tests {
 
 	use super::*;
 
+	/// Test the full cycle: Start a server, start a client with echo
+	/// enabled, check that the client echo log reports the expected
+	/// packets.
 	#[test]
 	fn full() -> Result<(), Box<dyn std::error::Error>> {
 		let buf_size = 32;
@@ -163,12 +166,11 @@ mod tests {
 				client::run(server_addr, buf_size,
 							true, receiver, Some(log_sender)).unwrap());
 
-		let mut records = Vec::with_capacity(10);
-		for _ in 0..10 {
+		for i in 0..10 {
 			let r = log_receiver.recv()?;
 			assert_eq!(r.source, bind_addr);
-			assert_eq!(r.size, 21);
-			records.push(r);
+			assert_eq!(r.size, MIN_SIZE);
+			assert_eq!(r.sequence, i);
 		}
 		assert_eq!(log_receiver.recv(), Err(RecvError));
 		Ok(())
