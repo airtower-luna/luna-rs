@@ -1,6 +1,6 @@
-use crate::{ECHO_FLAG, MIN_SIZE, parse_int, set_rt_prio};
+use crate::{set_rt_prio, ReceivedPacket, ECHO_FLAG, MIN_SIZE};
 use nix::{cmsg_space, sys::{mman, socket::{self, SockaddrLike, SockaddrStorage}, time::TimeSpec}};
-use std::{io::{Error, ErrorKind, IoSlice, IoSliceMut}, os::fd::AsRawFd};
+use std::{io::{IoSlice, IoSliceMut}, os::fd::AsRawFd};
 
 
 pub fn run(bind_addr: SockaddrStorage, buf_size: usize)
@@ -31,7 +31,7 @@ pub fn run(bind_addr: SockaddrStorage, buf_size: usize)
 	let mut cmsgspace = cmsg_space!(TimeSpec);
 	let mut iov = [IoSliceMut::new(&mut buffer)];
 
-	println!("ktime\tsource\tport\tsequence\tsize");
+	println!("{}", ReceivedPacket::header());
 	loop {
 		let r = socket::recvmsg::<socket::SockaddrStorage>(sock.as_raw_fd(), &mut iov, Some(&mut cmsgspace), flags)?;
 		let data = r.iovs().next().unwrap();
@@ -42,22 +42,8 @@ pub fn run(bind_addr: SockaddrStorage, buf_size: usize)
 			socket::sendmsg(sock.as_raw_fd(), &iov, &[], flags, r.address.as_ref())?;
 		}
 
-		if let Some(socket::ControlMessageOwned::ScmTimestampns(rtime)) = r.cmsgs()?.next() {
-			let addr = r.address.as_ref().unwrap();
-			let (ip, port) = if let Some(a) = addr.as_sockaddr_in6() {
-				(format!("{}", a.ip()), a.port())
-			} else { if let Some(a) = addr.as_sockaddr_in() {
-				(format!("{}", a.ip()), a.port())
-			} else {
-				return Err(Box::new(Error::new(ErrorKind::Unsupported, "unsupported address type")));
-			}};
-			let seq = if r.bytes >= size_of::<i32>() {
-				parse_int!(data, i32).0
-			} else {
-				// no valid sequence number
-				-1
-			};
-			println!("{}.{:09}\t{}\t{}\t{}\t{}", rtime.tv_sec(), rtime.tv_nsec(), ip, port, seq, r.bytes);
+		if let Ok(recv) = ReceivedPacket::try_from(r) {
+			println!("{recv}");
 		}
 	}
 }

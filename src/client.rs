@@ -1,4 +1,4 @@
-use crate::{parse_int, set_rt_prio, PacketData, ECHO_FLAG, MIN_SIZE};
+use crate::{set_rt_prio, PacketData, ReceivedPacket, ECHO_FLAG, MIN_SIZE};
 
 use nix::sys::socket::SockaddrStorage;
 
@@ -30,7 +30,7 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
 	let mut iov = [IoSliceMut::new(&mut buffer)];
 	let server_addr = SockaddrStorage::from(server);
 
-	println!("ktime\ttimestamp\tsequence\tsize");
+	println!("{}", ReceivedPacket::header());
 	loop {
 		let r = socket::recvmsg::<socket::SockaddrStorage>(
 			sock, &mut iov, Some(&mut cmsgspace), flags)?;
@@ -39,23 +39,12 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
 			// shut down for reading.
 			break;
 		}
-		let data = r.iovs().next().unwrap();
-
-		if let Some(socket::ControlMessageOwned::ScmTimestampns(rtime)) = r.cmsgs()?.next() {
-			let addr = r.address.as_ref().unwrap();
-			if addr != &server_addr {
+		if let Ok(recv) = ReceivedPacket::try_from(r) {
+			if recv.source != server_addr {
 				// wrong source
 				continue;
 			}
-			if r.bytes < MIN_SIZE {
-				eprintln!("received packet is too short");
-				continue;
-			}
-			let (seq, rest) = parse_int!(data, i32);
-			let (sec, rest) = parse_int!(rest, i64);
-			let (nsec, _) = parse_int!(rest, i64);
-			let stamp = TimeSpec::new(sec, nsec);
-			println!("{}.{:09}\t{}.{:09}\t{}\t{}", rtime.tv_sec(), rtime.tv_nsec(), stamp.tv_sec(), stamp.tv_nsec(), seq, r.bytes);
+			println!("{recv}");
 		}
 	}
 	Ok(())
