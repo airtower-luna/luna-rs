@@ -126,8 +126,6 @@ pub fn run(server: SocketAddr, buffer_size: usize, echo: bool) -> Result<(), Box
 		socket::sendmsg(
 			sock.as_raw_fd(), &iov, &[], flags,
 			Option::<&SockaddrStorage>::None)?;
-		#[cfg(debug_assertions)]
-		eprintln!("sent {}: {:?}", seq, buffer);
 
 		// prepare next packet
 		seq += 1;
