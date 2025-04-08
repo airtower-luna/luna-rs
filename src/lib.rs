@@ -22,6 +22,7 @@ macro_rules! parse_int {
 }
 
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct PacketData {
 	pub delay: TimeSpec,
 	pub size: usize,
