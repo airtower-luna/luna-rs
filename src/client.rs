@@ -96,6 +96,8 @@ pub fn run(server: SocketAddr, buffer_size: usize, echo: bool) -> Result<(), Box
 
 	let mut t = clock_gettime(CLOCK)?;
 	let mut seq: u32 = 0;
+	// Add a warmup offset before the first packet
+	t = t + TimeSpec::new(0, 500000);
 
 	let rusage_pre = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
 
