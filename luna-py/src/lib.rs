@@ -4,7 +4,7 @@ use luna_rs::{client, PacketData, ReceivedPacket, MIN_SIZE};
 use nix::sys::time::TimeSpec;
 use pyo3::{exceptions::{PyException, PyValueError}, prelude::*};
 
-#[pyclass(frozen)]
+#[pyclass(frozen, module = "luna_py")]
 struct Client {
 	server: SocketAddr,
 	#[pyo3(get)]
@@ -15,7 +15,7 @@ struct Client {
 	running: Mutex<Option<thread::JoinHandle<Result<(), String>>>>,
 }
 
-#[pyclass(frozen)]
+#[pyclass(frozen, module = "luna_py")]
 struct LogIter {
 	echo_receiver: Mutex<mpsc::Receiver<ReceivedPacket>>,
 }
@@ -40,6 +40,11 @@ impl Client {
 			generator: Mutex::new(None),
 			running: Mutex::new(None),
 		})
+	}
+
+	#[getter]
+	fn server(&self) -> String {
+		format!("{}", self.server)
 	}
 
 	fn run(&self, py: Python<'_>) -> PyResult<LogIter> {
@@ -92,6 +97,17 @@ impl Client {
 			let mut r = self.generator.lock().unwrap();
 			r.take();
 		});
+	}
+
+	#[getter]
+	fn running(&self, py: Python<'_>) -> bool {
+		py.allow_threads(|| {
+			let r = self.running.lock().unwrap();
+			match &*r {
+				None => false,
+				Some(t) => !t.is_finished(),
+			}
+		})
 	}
 
 	fn join(&self, py: Python<'_>) -> PyResult<()> {
