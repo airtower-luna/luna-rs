@@ -53,7 +53,7 @@ pub fn set_rt_prio(offset: i32) -> Result<(), Error> {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ReceivedPacket {
 	/// where the packet was received from (client on the server side,
 	/// server for echo packets received by the client)
@@ -128,5 +128,49 @@ impl Display for ReceivedPacket {
 impl ReceivedPacket {
 	pub fn header() -> String {
 		String::from("receive_time\tsource\tport\tsequence\ttimestamp\tsize")
+	}
+}
+
+
+#[cfg(test)]
+mod tests {
+	use std::{net::{SocketAddrV6, ToSocketAddrs}, sync::mpsc::{self, RecvError}, thread};
+
+	use generator::Generator;
+	use socket::SockaddrStorage;
+
+	use super::*;
+
+	#[test]
+	fn full() -> Result<(), Box<dyn std::error::Error>> {
+		let buf_size = 32;
+		// address with 0 port to make the server pick a free one
+		let bind_addr = SockaddrStorage::from("[::1]:0".parse::<SocketAddrV6>()?);
+		let mut srv = server::Server::new(bind_addr, buf_size);
+		srv.bind()?;
+		// address the server is *actually* bound to
+		let bind_addr = srv.bound().unwrap().clone();
+		let s = format!("{}", bind_addr);
+		thread::spawn(move || srv.run().unwrap());
+
+		let receiver = Generator::Rapid.run();
+		let server_addr: std::net::SocketAddr = s.to_socket_addrs()
+			.expect("cannot parse server address")
+			.next().expect("no address");
+		let (log_sender, log_receiver) = mpsc::channel();
+		thread::spawn(
+			move ||
+				client::run(server_addr, buf_size,
+							true, receiver, Some(log_sender)).unwrap());
+
+		let mut records = Vec::with_capacity(10);
+		for _ in 0..10 {
+			let r = log_receiver.recv()?;
+			assert_eq!(r.source, bind_addr);
+			assert_eq!(r.size, 21);
+			records.push(r);
+		}
+		assert_eq!(log_receiver.recv(), Err(RecvError));
+		Ok(())
 	}
 }

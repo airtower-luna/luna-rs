@@ -15,7 +15,7 @@ use nix::time::{ClockId, ClockNanosleepFlags, clock_gettime, clock_nanosleep};
 static CLOCK: ClockId = ClockId::CLOCK_REALTIME;
 
 
-fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> {
+fn echo_log(sock: i32, max_len: usize, server: SocketAddr, logger: Option<mpsc::Sender<ReceivedPacket>>) -> Result<(), Error> {
 	let flags = socket::MsgFlags::empty();
 	let mut buffer = vec![0u8; max_len];
 	let mut cmsgspace = cmsg_space!(TimeSpec);
@@ -36,7 +36,14 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
 				// wrong source
 				continue;
 			}
-			println!("{recv}");
+			if let Some(sender) = &logger {
+				if let Err(_) = sender.send(recv) {
+					// receiver hung up, no point in listening
+					break;
+				}
+			} else {
+				println!("{recv}");
+			}
 		}
 	}
 	Ok(())
@@ -45,7 +52,8 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr) -> Result<(), Error> 
 
 pub fn run(
 	server: SocketAddr, buffer_size: usize, echo: bool,
-	receiver: mpsc::Receiver<PacketData>)
+	receiver: mpsc::Receiver<PacketData>,
+	echo_logger: Option<mpsc::Sender<ReceivedPacket>>)
 	-> Result<(), Box<dyn std::error::Error>>
 {
 	if let Err(err) = set_rt_prio(20) {
@@ -73,7 +81,7 @@ pub fn run(
 
 	let et = if echo {
 		let s = sock.as_raw_fd();
-		Some(thread::spawn(move || echo_log(s, buffer_size, server)))
+		Some(thread::spawn(move || echo_log(s, buffer_size, server, echo_logger)))
 	} else {
 		None
 	};

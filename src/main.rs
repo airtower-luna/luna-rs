@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				.to_socket_addrs()
 				.expect("cannot parse server address")
 				.next().expect("no address");
-			client::run(server_addr, args.buffer_size, echo, receiver)?;
+			client::run(server_addr, args.buffer_size, echo, receiver, None)?;
 		},
 		Commands::Server { port, bind } => {
 			let bind_addr: SockaddrStorage = if bind.is_ipv6() {
