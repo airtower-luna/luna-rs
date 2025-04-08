@@ -2,6 +2,10 @@
 name = 'luna-rs'
 version = '0.1.0'
 edition = '2024'
+license = 'GPL-3.0-or-later'
+description = 'Packet generator with precise timing behavior'
+readme = 'README.md'
+repository = 'https://github.com/airtower-luna/luna-rs'
 
 [dependencies]
 clap = { version = '4', features = ['cargo', 'derive'] }
