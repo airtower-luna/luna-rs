@@ -257,7 +257,7 @@ impl Server {
 
 
 #[pymodule(gil_used = false)]
-fn luna_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn luna(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	m.add("MIN_SIZE", MIN_SIZE)?;
 	m.add_class::<Client>()?;
 	m.add_class::<Server>()?;

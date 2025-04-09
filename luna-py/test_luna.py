@@ -1,16 +1,16 @@
-import luna_py
+import luna
 import random
 import threading
 from contextlib import ExitStack
 
 
-def feed(c: luna_py.Client) -> None:
+def feed(c: luna.Client) -> None:
     r = random.SystemRandom()
     try:
         for _ in range(10):
             c.put(
                 (0, 200000000),
-                int(r.uniform(luna_py.MIN_SIZE, c.buffer_size)))
+                int(r.uniform(luna.MIN_SIZE, c.buffer_size)))
     finally:
         c.close()
 
@@ -18,11 +18,11 @@ def feed(c: luna_py.Client) -> None:
 def test_client() -> None:
     buf_size = 32
     with ExitStack() as stack:
-        server = luna_py.Server(bind='::1', port=0, buffer_size=buf_size)
+        server = luna.Server(bind='::1', port=0, buffer_size=buf_size)
         stack.callback(server.stop)
         server_addr = server.start()
 
-        client = luna_py.Client(server_addr)
+        client = luna.Client(server_addr)
         generator_thread = threading.Thread(target=feed, args=(client,))
 
         # client.run() returns an iterator over logs that'll stop after
@@ -33,7 +33,7 @@ def test_client() -> None:
         generator_thread.start()
 
         # read all the log lines
-        output: list[luna_py.PacketRecord] = [*log]
+        output: list[luna.PacketRecord] = [*log]
 
     generator_thread.join()
     client.join()
