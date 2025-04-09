@@ -1,4 +1,5 @@
 import luna
+import pytest
 import random
 import threading
 from contextlib import ExitStack
@@ -50,3 +51,9 @@ def test_client() -> None:
         assert isinstance(record.receive_time, Decimal)
         assert isinstance(record.timestamp, Decimal)
         assert record.receive_time - record.timestamp < diff
+
+
+def test_client_not_connected():
+    client = luna.Client('[::1]:7800')
+    with pytest.raises(Exception, match=r'^client is not running'):
+        client.put((1, 0), 22)

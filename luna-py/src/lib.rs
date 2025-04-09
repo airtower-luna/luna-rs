@@ -179,9 +179,11 @@ impl Client {
 					delay: TimeSpec::new(time.0, time.1),
 					size,
 				});
+				Ok(())
+			} else {
+				Err("client is not running")
 			}
-			Ok(())
-		})
+		}).map_err(|e| PyException::new_err(e))
 	}
 
 	fn close(&self, py: Python<'_>) {
