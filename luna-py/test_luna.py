@@ -57,3 +57,8 @@ def test_client_not_connected():
     client = luna.Client('[::1]:7800')
     with pytest.raises(Exception, match=r'^client is not running'):
         client.put((1, 0), 22)
+
+
+def test_class_name():
+    client = luna.Client('[::1]:7800')
+    assert repr(client).startswith('<luna.Client object')

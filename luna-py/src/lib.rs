@@ -24,7 +24,7 @@ fn timespec_to_decimal<'py>(
 }
 
 
-#[pyclass(frozen, module = "luna_py")]
+#[pyclass(frozen, module = "luna")]
 struct LogIter {
 	echo_receiver: Mutex<mpsc::Receiver<ReceivedPacket>>,
 }
@@ -55,7 +55,7 @@ impl LogIter {
 }
 
 
-#[pyclass(frozen, module = "luna_py")]
+#[pyclass(frozen, module = "luna")]
 struct PacketRecord {
 	packet: ReceivedPacket
 }
@@ -101,7 +101,7 @@ impl PacketRecord {
 }
 
 
-#[pyclass(frozen, module = "luna_py")]
+#[pyclass(frozen, module = "luna")]
 struct Client {
 	server: SocketAddr,
 	#[pyo3(get)]
@@ -220,7 +220,7 @@ impl Client {
 }
 
 
-#[pyclass(frozen, module = "luna_py")]
+#[pyclass(frozen, module = "luna")]
 struct Server {
 	bind: Mutex<SockaddrStorage>,
 	#[pyo3(get)]
