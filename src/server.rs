@@ -1,6 +1,6 @@
 use crate::{set_rt_prio, ReceivedPacket, ECHO_FLAG, MIN_SIZE};
 use nix::{cmsg_space, errno::Errno, sys::{mman, socket::{self, SockaddrLike, SockaddrStorage}, time::TimeSpec}};
-use std::{io::{Error, ErrorKind, IoSlice, IoSliceMut}, os::fd::{AsRawFd, OwnedFd}};
+use std::{io::{Error, ErrorKind, IoSlice, IoSliceMut}, os::fd::{AsRawFd, OwnedFd}, sync::Mutex};
 
 
 pub struct Server {
@@ -11,7 +11,7 @@ pub struct Server {
 
 
 pub struct CloseHandle {
-	fd: i32
+	fd: Mutex<Option<i32>>
 }
 
 
@@ -37,7 +37,7 @@ impl Server {
 		socket::setsockopt(&sock, socket::sockopt::ReceiveTimestampns, &true)?;
 		socket::bind(sock.as_raw_fd(), &self.bind)?;
 		self.bind = socket::getsockname::<SockaddrStorage>(sock.as_raw_fd())?;
-		let handle = CloseHandle { fd: sock.as_raw_fd() };
+		let handle = CloseHandle::new(sock.as_raw_fd());
 		self.sock = Some(sock);
 		Ok(handle)
 	}
@@ -101,11 +101,21 @@ impl Server {
 
 
 impl CloseHandle {
+	pub fn new(fd: i32) -> Self {
+		CloseHandle {
+			fd: Mutex::new(Some(fd))
+		}
+	}
+
 	pub fn close(&self) -> Result<(), Errno> {
-		match socket::shutdown(self.fd, socket::Shutdown::Both).err() {
+		let mut f = self.fd.lock().unwrap();
+		match &f.take() {
 			None => Ok(()),
-			Some(Errno::ENOTCONN) => Ok(()),
-			Some(e) => return Err(e),
+			Some(fd) => match socket::shutdown(*fd, socket::Shutdown::Both).err() {
+				None => Ok(()),
+				Some(Errno::ENOTCONN) => Ok(()),
+				Some(e) => return Err(e),
+			}
 		}
 	}
 }
