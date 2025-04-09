@@ -6,26 +6,27 @@ from contextlib import ExitStack
 from decimal import Decimal
 
 
-def feed(c: luna.Client) -> None:
+def feed(c: luna.Client, sizes: list[int]) -> None:
     r = random.SystemRandom()
     try:
         for _ in range(10):
-            c.put(
-                (0, 200000000),
-                int(r.uniform(luna.MIN_SIZE, c.buffer_size)))
+            size = int(r.uniform(luna.MIN_SIZE, c.buffer_size))
+            c.put((0, 200000000), size)
+            sizes.append(size)
     finally:
         c.close()
 
 
 def test_full() -> None:
-    buf_size = 32
+    buf_size = 1500
     with ExitStack() as stack:
         server = stack.enter_context(
             luna.Server(bind='::1', port=0, buffer_size=buf_size))
         server_addr = server.bind
 
         client = luna.Client(server_addr)
-        generator_thread = threading.Thread(target=feed, args=(client,))
+        sizes: list[int] = list()
+        generator_thread = threading.Thread(target=feed, args=(client, sizes))
 
         # client.start() or entering its context returns an iterator
         # over logs that'll stop after the client has sent all
@@ -48,7 +49,7 @@ def test_full() -> None:
     for i, record in enumerate(output):
         assert record.source == server_addr
         assert record.sequence == i
-        assert record.size == buf_size
+        assert record.size == sizes[i]
         assert isinstance(record.receive_time, Decimal)
         assert isinstance(record.timestamp, Decimal)
         assert record.receive_time - record.timestamp < diff
