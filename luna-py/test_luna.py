@@ -2,6 +2,7 @@ import luna
 import random
 import threading
 from contextlib import ExitStack
+from decimal import Decimal
 
 
 def feed(c: luna.Client) -> None:
@@ -40,7 +41,12 @@ def test_client() -> None:
 
     assert len(output) == 10
     ip, port = server_addr.rsplit(':', maxsplit=1)
+    # 1ms should be enough for loopback RTT even on slow systems
+    diff = Decimal('0.001')
     for i, record in enumerate(output):
         assert record.source == server_addr
         assert record.sequence == i
         assert record.size == buf_size
+        assert isinstance(record.receive_time, Decimal)
+        assert isinstance(record.timestamp, Decimal)
+        assert record.receive_time - record.timestamp < diff

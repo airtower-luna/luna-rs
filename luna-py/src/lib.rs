@@ -1,8 +1,27 @@
-use std::{net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs}, sync::{mpsc::{self, RecvError}, Mutex}, thread};
+use std::{
+	net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
+	sync::{mpsc::{self, RecvError}, Mutex},
+	thread
+};
 
 use luna_rs::{client, server, PacketData, ReceivedPacket, MIN_SIZE};
 use nix::{errno::Errno, sys::{socket::SockaddrStorage, time::TimeSpec}};
-use pyo3::{exceptions::{PyException, PyOSError, PyValueError}, prelude::*};
+use pyo3::{
+	exceptions::{PyException, PyOSError, PyValueError},
+	prelude::*,
+	sync::GILOnceCell,
+	types::PyType
+};
+
+
+fn timespec_to_decimal<'py>(
+	py: Python<'py>, time: &TimeSpec)
+	-> PyResult<Bound<'py, PyAny>>
+{
+	static DECIMAL: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+	DECIMAL.import(py, "decimal", "Decimal")?
+		.call1((format!("{}.{}", time.tv_sec(), time.tv_nsec()),))
+}
 
 
 #[pyclass(frozen, module = "luna_py")]
@@ -51,10 +70,10 @@ impl PacketRecord {
 	}
 
 	/// Receive timestamp of the packet as reported by the kernel,
-	/// tuple of seconds and nanoseconds.
+	/// decimal.Decimal in seconds.
 	#[getter]
-	fn receive_time(&self) -> (i64, i64) {
-		(self.packet.receive_time.tv_sec(), self.packet.receive_time.tv_nsec())
+	fn receive_time<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+		timespec_to_decimal(py, &self.packet.receive_time)
 	}
 
 	/// Size of the packet (bytes).
@@ -69,11 +88,11 @@ impl PacketRecord {
 		self.packet.sequence
 	}
 
-	/// Send timestamp recorded in the packet, tuple of seconds and
-	/// nanoseconds.
+	/// Send timestamp recorded in the packet, as decimal.Decimal in
+	/// seconds.
 	#[getter]
-	fn timestamp(&self) -> (i64, i64) {
-		(self.packet.timestamp.tv_sec(), self.packet.timestamp.tv_nsec())
+	fn timestamp<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+		timespec_to_decimal(py, &self.packet.timestamp)
 	}
 
 	fn __str__(&self) -> String {

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Self
 
 MIN_SIZE: int
@@ -5,10 +6,10 @@ MIN_SIZE: int
 
 class PacketRecord:
     source: str
-    receive_time: tuple[int, int]
+    receive_time: Decimal
     size: int
     sequence: int
-    timestamp: tuple[int, int]
+    timestamp: Decimal
     def __str__(self) -> str: ...
 
 
