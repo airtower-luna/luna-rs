@@ -10,7 +10,7 @@ use pyo3::{
 	exceptions::{PyException, PyOSError, PyValueError},
 	prelude::*,
 	sync::GILOnceCell,
-	types::PyType
+	types::{PyTraceback, PyType}
 };
 
 
@@ -226,6 +226,7 @@ struct Server {
 	#[pyo3(get)]
 	buffer_size: usize,
 	handle: Mutex<Option<server::CloseHandle>>,
+	running: Mutex<Option<thread::JoinHandle<Result<(), String>>>>,
 }
 
 #[pymethods]
@@ -245,24 +246,46 @@ impl Server {
 			bind: Mutex::new(bind_addr),
 			buffer_size,
 			handle: Mutex::new(None),
+			running: Mutex::new(None),
 		})
 	}
 
 	pub fn start(&self, py: Python<'_>) -> PyResult<String> {
 		py.allow_threads(|| {
-			let (s, ch) = {
+			{
+				let r = self.running.lock().unwrap();
+				match *r {
+					Some(_) => return Err(Errno::EISCONN),
+					None => (),
+				}
+			}
+			let (s, ch, jh) = {
 				let mut b = self.bind.lock().unwrap();
 				let mut srv = server::Server::new(*b, self.buffer_size);
 				let server_handle = srv.bind()?;
 				// address the server is *actually* bound to
 				*b = srv.bound().unwrap().clone();
-				thread::spawn(move || srv.run().unwrap());
-				(format!("{}", b), server_handle)
+				let jh = thread::spawn(move || srv.run().map_err(|e| e.to_string()));
+				(format!("{}", b), server_handle, jh)
 			};
-			let mut h = self.handle.lock().unwrap();
-			*h = Some(ch);
+			{
+				let mut h = self.handle.lock().unwrap();
+				*h = Some(ch);
+			}
+			{
+				let mut j = self.running.lock().unwrap();
+				*j = Some(jh);
+			}
 			Ok(s)
 		}).map_err(|e: Errno| PyOSError::new_err(e.desc()))
+	}
+
+	#[getter]
+	pub fn bind(&self, py: Python<'_>) -> String {
+		py.allow_threads(|| {
+			let b = self.bind.lock().unwrap();
+			format!("{}", b)
+		})
 	}
 
 	pub fn stop(&self, py: Python<'_>) -> PyResult<()> {
@@ -273,6 +296,51 @@ impl Server {
 				Some(handle) => handle.close()
 			}
 		}).map_err(|e| PyOSError::new_err(e.desc()))
+	}
+
+	#[getter]
+	fn running(&self, py: Python<'_>) -> bool {
+		py.allow_threads(|| {
+			let r = self.running.lock().unwrap();
+			match &*r {
+				None => false,
+				Some(t) => !t.is_finished(),
+			}
+		})
+	}
+
+	fn join(&self, py: Python<'_>) -> PyResult<()> {
+		py.allow_threads(|| {
+			let mut r = self.running.lock().unwrap();
+			if let None = &*r {
+				return Err("not running");
+			}
+			let t = r.take().unwrap();
+			match t.join() {
+				Err(_) => Err("error in server thread"),
+				Ok(_) => Ok(())
+			}
+		}).map_err(|e| PyException::new_err(e))
+	}
+
+	fn __enter__<'py>(
+		slf: PyRef<'py, Self>, py: Python<'py>)
+		-> PyResult<PyRef<'py, Self>>
+	{
+		slf.start(py)?;
+		Ok(slf)
+	}
+
+	fn __exit__<'py>(
+		slf: PyRef<'py, Self>, py: Python<'py>,
+		_exception_type: Option<&Bound<'py, PyType>>,
+		_exception_value: Option<&Bound<'py, PyException>>,
+		_traceback: Option<&Bound<'py, PyTraceback>>)
+		-> PyResult<bool>
+	{
+		slf.stop(py)?;
+		slf.join(py)?;
+		Ok(false)
 	}
 }
 

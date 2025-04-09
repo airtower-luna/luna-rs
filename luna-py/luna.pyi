@@ -20,6 +20,8 @@ class LogIter:
 
 class Server:
     buffer_size: int
+    bind: str
+    running: bool
 
     def __init__(self, bind: str, port: int = 7800, buffer_size: int = 1500) \
             -> None:
@@ -27,6 +29,9 @@ class Server:
 
     def start(self) -> str: ...
     def stop(self) -> None: ...
+    def join(self) -> None: ...
+    def __enter__(self) -> Self: ...
+    def __exit__(self, exception_type, exception_value, traceback) -> bool: ...
 
 
 class Client:

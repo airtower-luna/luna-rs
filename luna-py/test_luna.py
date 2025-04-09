@@ -20,9 +20,9 @@ def feed(c: luna.Client) -> None:
 def test_client() -> None:
     buf_size = 32
     with ExitStack() as stack:
-        server = luna.Server(bind='::1', port=0, buffer_size=buf_size)
-        stack.callback(server.stop)
-        server_addr = server.start()
+        server = stack.enter_context(
+            luna.Server(bind='::1', port=0, buffer_size=buf_size))
+        server_addr = server.bind
 
         client = luna.Client(server_addr)
         generator_thread = threading.Thread(target=feed, args=(client,))
@@ -37,6 +37,7 @@ def test_client() -> None:
         # read all the log lines
         output: list[luna.PacketRecord] = [*log]
 
+    assert server.running is False
     generator_thread.join()
     client.join()
 
