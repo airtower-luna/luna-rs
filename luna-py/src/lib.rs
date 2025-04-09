@@ -1,8 +1,8 @@
 use std::{net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs}, sync::{mpsc::{self, RecvError}, Mutex}, thread};
 
 use luna_rs::{client, server, PacketData, ReceivedPacket, MIN_SIZE};
-use nix::sys::{socket::SockaddrStorage, time::TimeSpec};
-use pyo3::{exceptions::{PyException, PyValueError}, prelude::*};
+use nix::{errno::Errno, sys::{socket::{self, SockaddrStorage}, time::TimeSpec}};
+use pyo3::{exceptions::{PyException, PyOSError, PyValueError}, prelude::*};
 
 
 #[pyclass(frozen, module = "luna_py")]
@@ -14,6 +14,14 @@ struct Client {
 	echo: bool,
 	generator: Mutex<Option<mpsc::Sender<PacketData>>>,
 	running: Mutex<Option<thread::JoinHandle<Result<(), String>>>>,
+}
+
+#[pyclass(frozen, module = "luna_py")]
+struct Server {
+	bind: Mutex<SockaddrStorage>,
+	#[pyo3(get)]
+	buffer_size: usize,
+	fd: Mutex<Option<i32>>,
 }
 
 #[pyclass(frozen, module = "luna_py")]
@@ -49,7 +57,7 @@ impl Client {
 		format!("{}", self.server)
 	}
 
-	fn run(&self, py: Python<'_>) -> PyResult<LogIter> {
+	fn start(&self, py: Python<'_>) -> PyResult<LogIter> {
 		py.allow_threads(|| {
 			let gen_receiver = {
 				let (gen_sender, gen_receiver) = mpsc::channel::<PacketData>();
@@ -154,28 +162,62 @@ impl LogIter {
 }
 
 
-#[pyfunction]
-#[pyo3(signature = (bind="::", port=7800, buffer_size=1500))]
-pub fn spawn_server(py: Python<'_>, bind: &str, port: u16, buffer_size: usize) -> PyResult<String> {
-	let bind_ip: IpAddr = match bind.parse() {
-		Ok(i) => i,
-		Err(e) => { return Err(PyValueError::new_err(e)); },
-	};
-	py.allow_threads(|| {
+#[pymethods]
+impl Server {
+	#[new]
+	#[pyo3(signature = (bind, port=7800, buffer_size=1500))]
+	fn new(bind: &str, port: u16, buffer_size: usize) -> PyResult<Self> {
+		let bind_ip: IpAddr = match bind.parse() {
+			Ok(i) => i,
+			Err(e) => { return Err(PyValueError::new_err(e)); },
+		};
 		let bind_addr = match bind_ip {
 			IpAddr::V6(i) => SockaddrStorage::from(SocketAddrV6::new(i, port, 0, 0)),
 			IpAddr::V4(i) => SockaddrStorage::from(SocketAddrV4::new(i, port)),
 		};
-		let mut srv = server::Server::new(bind_addr, buffer_size);
-		if let Err(e) = srv.bind().map_err(|e| e.to_string()) {
-			return Err(e)
-		}
-		// address the server is *actually* bound to
-		let bind_addr = srv.bound().unwrap().clone();
-		let s = format!("{}", bind_addr);
-		thread::spawn(move || srv.run().unwrap());
-		Ok(s)
-	}).map_err(|e| PyException::new_err(e))
+		Ok(Server {
+			bind: Mutex::new(bind_addr),
+			buffer_size,
+			fd: Mutex::new(None),
+		})
+	}
+
+	pub fn start(&self, py: Python<'_>) -> PyResult<String> {
+		py.allow_threads(|| {
+			let (s, fd) = {
+				let mut b = self.bind.lock().unwrap();
+				let mut srv = server::Server::new(*b, self.buffer_size);
+				if let Err(e) = srv.bind().map_err(|e| e.to_string()) {
+					return Err(e)
+				}
+				// address the server is *actually* bound to
+				*b = srv.bound().unwrap().clone();
+				let fd = srv.fd();
+				thread::spawn(move || srv.run().unwrap());
+				(format!("{}", b), fd)
+			};
+			let mut f = self.fd.lock().unwrap();
+			*f = fd;
+			Ok(s)
+		}).map_err(|e| PyException::new_err(e))
+	}
+
+	pub fn stop(&self, py: Python<'_>) -> PyResult<()> {
+		py.allow_threads(|| {
+			let f = self.fd.lock().unwrap();
+			match &*f {
+				None => (),
+				Some(fd) => match socket::shutdown(
+					*fd, socket::Shutdown::Both).err()
+				{
+					None => (),
+					Some(Errno::ENOTCONN) => (),
+					Some(e) => { return Err(e) },
+				}
+			}
+			Ok(())
+		}).map_err(|e| PyOSError::new_err(e.desc()))
+	}
 }
 
 
@@ -183,7 +225,7 @@ pub fn spawn_server(py: Python<'_>, bind: &str, port: u16, buffer_size: usize) -
 fn luna_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	m.add("MIN_SIZE", MIN_SIZE)?;
 	m.add_class::<Client>()?;
+	m.add_class::<Server>()?;
 	m.add_class::<LogIter>()?;
-	m.add_function(wrap_pyfunction!(spawn_server, m)?)?;
     Ok(())
 }

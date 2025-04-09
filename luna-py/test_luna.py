@@ -1,6 +1,7 @@
 import luna_py  # type: ignore
 import random
 import threading
+from contextlib import ExitStack
 
 
 def feed(c):
@@ -16,25 +17,29 @@ def feed(c):
 
 def test_client() -> None:
     buf_size = 32
-    # WARNING: There's no way to *stop* the server yet, it will run
-    # until the process terminates.
-    server: str = luna_py.spawn_server(
-        bind='::1', port=0, buffer_size=buf_size)
-    client = luna_py.Client(server)
-    generator_thread = threading.Thread(target=feed, args=(client,))
+    with ExitStack() as stack:
+        server = luna_py.Server(bind='::1', port=0, buffer_size=buf_size)
+        stack.callback(server.stop)
+        server_addr = server.start()
 
-    # client.run() returns an iterator over logs that'll stop after
-    # the client has sent all packets. The client must be closed for
-    # it do be done.
-    log = client.run()
-    generator_thread.start()
+        client = luna_py.Client(server_addr)
+        generator_thread = threading.Thread(target=feed, args=(client,))
 
-    # read all the log lines
-    output: list[str] = [*log]
-    client.join()
+        # client.run() returns an iterator over logs that'll stop after
+        # the client has sent all packets. The client must be closed for
+        # it do be done.
+        stack.callback(client.close)
+        log = client.start()
+        generator_thread.start()
+
+        # read all the log lines
+        output: list[str] = [*log]
+
     generator_thread.join()
+    client.join()
+
     assert len(output) == 10
-    ip, port = server.rsplit(':', maxsplit=1)
+    ip, port = server_addr.rsplit(':', maxsplit=1)
     for i, line in enumerate(output):
         fields = line.split('\t')
         assert fields[1] == ip.strip('[]')
