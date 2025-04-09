@@ -6,6 +6,37 @@ use pyo3::{exceptions::{PyException, PyOSError, PyValueError}, prelude::*};
 
 
 #[pyclass(frozen, module = "luna_py")]
+struct LogIter {
+	echo_receiver: Mutex<mpsc::Receiver<ReceivedPacket>>,
+}
+
+impl LogIter {
+	fn new(receiver: mpsc::Receiver<ReceivedPacket>) -> Self {
+		LogIter {
+			echo_receiver: Mutex::new(receiver),
+		}
+	}
+}
+
+#[pymethods]
+impl LogIter {
+	fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+		slf
+	}
+
+	fn __next__(&self, py: Python<'_>) -> Option<String> {
+		py.allow_threads(|| {
+			let guard = self.echo_receiver.lock().unwrap();
+			match guard.recv() {
+				Err(RecvError) => None,
+				Ok(record) => Some(format!("{record}")),
+			}
+		})
+	}
+}
+
+
+#[pyclass(frozen, module = "luna_py")]
 struct Client {
 	server: SocketAddr,
 	#[pyo3(get)]
@@ -15,20 +46,6 @@ struct Client {
 	generator: Mutex<Option<mpsc::Sender<PacketData>>>,
 	running: Mutex<Option<thread::JoinHandle<Result<(), String>>>>,
 }
-
-#[pyclass(frozen, module = "luna_py")]
-struct Server {
-	bind: Mutex<SockaddrStorage>,
-	#[pyo3(get)]
-	buffer_size: usize,
-	handle: Mutex<Option<server::CloseHandle>>,
-}
-
-#[pyclass(frozen, module = "luna_py")]
-struct LogIter {
-	echo_receiver: Mutex<mpsc::Receiver<ReceivedPacket>>,
-}
-
 
 #[pymethods]
 impl Client {
@@ -136,31 +153,13 @@ impl Client {
 }
 
 
-impl LogIter {
-	fn new(receiver: mpsc::Receiver<ReceivedPacket>) -> Self {
-		LogIter {
-			echo_receiver: Mutex::new(receiver),
-		}
-	}
+#[pyclass(frozen, module = "luna_py")]
+struct Server {
+	bind: Mutex<SockaddrStorage>,
+	#[pyo3(get)]
+	buffer_size: usize,
+	handle: Mutex<Option<server::CloseHandle>>,
 }
-
-#[pymethods]
-impl LogIter {
-	fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-		slf
-	}
-
-	fn __next__(&self, py: Python<'_>) -> Option<String> {
-		py.allow_threads(|| {
-			let guard = self.echo_receiver.lock().unwrap();
-			match guard.recv() {
-				Err(RecvError) => None,
-				Ok(record) => Some(format!("{record}")),
-			}
-		})
-	}
-}
-
 
 #[pymethods]
 impl Server {
