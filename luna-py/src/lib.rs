@@ -1,8 +1,9 @@
-use std::{net::{SocketAddr, ToSocketAddrs}, sync::{mpsc::{self, RecvError}, Mutex}, thread};
+use std::{net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs}, sync::{mpsc::{self, RecvError}, Mutex}, thread};
 
-use luna_rs::{client, PacketData, ReceivedPacket, MIN_SIZE};
-use nix::sys::time::TimeSpec;
+use luna_rs::{client, server, PacketData, ReceivedPacket, MIN_SIZE};
+use nix::sys::{socket::SockaddrStorage, time::TimeSpec};
 use pyo3::{exceptions::{PyException, PyValueError}, prelude::*};
+
 
 #[pyclass(frozen, module = "luna_py")]
 struct Client {
@@ -19,6 +20,7 @@ struct Client {
 struct LogIter {
 	echo_receiver: Mutex<mpsc::Receiver<ReceivedPacket>>,
 }
+
 
 #[pymethods]
 impl Client {
@@ -125,6 +127,7 @@ impl Client {
 	}
 }
 
+
 impl LogIter {
 	fn new(receiver: mpsc::Receiver<ReceivedPacket>) -> Self {
 		LogIter {
@@ -150,10 +153,37 @@ impl LogIter {
 	}
 }
 
+
+#[pyfunction]
+#[pyo3(signature = (bind="::", port=7800, buffer_size=1500))]
+pub fn spawn_server(py: Python<'_>, bind: &str, port: u16, buffer_size: usize) -> PyResult<String> {
+	let bind_ip: IpAddr = match bind.parse() {
+		Ok(i) => i,
+		Err(e) => { return Err(PyValueError::new_err(e)); },
+	};
+	py.allow_threads(|| {
+		let bind_addr = match bind_ip {
+			IpAddr::V6(i) => SockaddrStorage::from(SocketAddrV6::new(i, port, 0, 0)),
+			IpAddr::V4(i) => SockaddrStorage::from(SocketAddrV4::new(i, port)),
+		};
+		let mut srv = server::Server::new(bind_addr, buffer_size);
+		if let Err(e) = srv.bind().map_err(|e| e.to_string()) {
+			return Err(e)
+		}
+		// address the server is *actually* bound to
+		let bind_addr = srv.bound().unwrap().clone();
+		let s = format!("{}", bind_addr);
+		thread::spawn(move || srv.run().unwrap());
+		Ok(s)
+	}).map_err(|e| PyException::new_err(e))
+}
+
+
 #[pymodule(gil_used = false)]
 fn luna_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
+	m.add("MIN_SIZE", MIN_SIZE)?;
 	m.add_class::<Client>()?;
 	m.add_class::<LogIter>()?;
-	m.add("MIN_SIZE", MIN_SIZE)?;
+	m.add_function(wrap_pyfunction!(spawn_server, m)?)?;
     Ok(())
 }
