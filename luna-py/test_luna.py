@@ -1,10 +1,10 @@
-import luna_py  # type: ignore
+import luna_py
 import random
 import threading
 from contextlib import ExitStack
 
 
-def feed(c):
+def feed(c: luna_py.Client):
     r = random.SystemRandom()
     try:
         for _ in range(10):
