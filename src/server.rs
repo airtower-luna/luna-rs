@@ -72,6 +72,10 @@ impl Server {
 		println!("{}", ReceivedPacket::header());
 		loop {
 			let r = socket::recvmsg::<socket::SockaddrStorage>(fd, &mut iov, Some(&mut cmsgspace), flags)?;
+			if r.bytes == 0 {
+				// server socket has been closed
+				break;
+			}
 			let data = r.iovs().next().unwrap();
 
 			// send echo if requested
@@ -84,6 +88,12 @@ impl Server {
 				println!("{recv}");
 			}
 		}
+		eprintln!("server shutting down");
+		Ok(())
+	}
+
+	pub fn fd(&self) -> Option<i32> {
+		self.sock.as_ref().map(|s| s.as_raw_fd())
 	}
 }
 

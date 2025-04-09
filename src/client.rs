@@ -140,7 +140,7 @@ pub fn run(
 	socket::shutdown(sock.as_raw_fd(), socket::Shutdown::Read)?;
 	if let Some(t) = et {
 		if let Err(e) = t.join() {
-			eprintln!("{e:?}");
+			eprintln!("error in echo thread: {e:?}");
 		};
 	}
 

@@ -137,6 +137,7 @@ mod tests {
 	use std::{net::{SocketAddrV6, ToSocketAddrs}, sync::mpsc::{self, RecvError}, thread};
 
 	use generator::Generator;
+	use nix::errno::Errno;
 	use socket::SockaddrStorage;
 
 	use super::*;
@@ -154,6 +155,7 @@ mod tests {
 		// address the server is *actually* bound to
 		let bind_addr = srv.bound().unwrap().clone();
 		let s = format!("{}", bind_addr);
+		let server_fd = srv.fd().unwrap();
 		thread::spawn(move || srv.run().unwrap());
 
 		let receiver = Generator::Rapid.run();
@@ -161,7 +163,7 @@ mod tests {
 			.expect("cannot parse server address")
 			.next().expect("no address");
 		let (log_sender, log_receiver) = mpsc::channel();
-		thread::spawn(
+		let ct = thread::spawn(
 			move ||
 				client::run(server_addr, buf_size,
 							true, receiver, Some(log_sender)).unwrap());
@@ -173,6 +175,17 @@ mod tests {
 			assert_eq!(r.sequence, i);
 		}
 		assert_eq!(log_receiver.recv(), Err(RecvError));
+
+		match socket::shutdown(server_fd, socket::Shutdown::Both).err() {
+			None => (),
+			Some(Errno::ENOTCONN) => (),
+			Some(e) => { return Err(Box::new(e)) },
+		}
+
+		if let Err(e) = ct.join() {
+			eprintln!("error in client thread: {e:?}");
+		};
+
 		Ok(())
 	}
 }
