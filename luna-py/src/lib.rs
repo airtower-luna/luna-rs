@@ -24,14 +24,60 @@ impl LogIter {
 		slf
 	}
 
-	fn __next__(&self, py: Python<'_>) -> Option<String> {
+	fn __next__(&self, py: Python<'_>) -> Option<PacketRecord> {
 		py.allow_threads(|| {
 			let guard = self.echo_receiver.lock().unwrap();
 			match guard.recv() {
 				Err(RecvError) => None,
-				Ok(record) => Some(format!("{record}")),
+				Ok(record) => Some(PacketRecord {packet: record}),
 			}
 		})
+	}
+}
+
+
+#[pyclass(frozen, module = "luna_py")]
+struct PacketRecord {
+	packet: ReceivedPacket
+}
+
+#[pymethods]
+impl PacketRecord {
+	/// Source address of the packet. For echo packets received by the
+	/// client this will be the server.
+	#[getter]
+	fn source(&self) -> String {
+		format!("{}", self.packet.source)
+	}
+
+	/// Receive timestamp of the packet as reported by the kernel,
+	/// tuple of seconds and nanoseconds.
+	#[getter]
+	fn receive_time(&self) -> (i64, i64) {
+		(self.packet.receive_time.tv_sec(), self.packet.receive_time.tv_nsec())
+	}
+
+	/// Size of the packet (bytes).
+	#[getter]
+	fn size(&self) -> usize {
+		self.packet.size
+	}
+
+	/// Sequence number of the packet.
+	#[getter]
+	fn sequence(&self) -> u32 {
+		self.packet.sequence
+	}
+
+	/// Send timestamp recorded in the packet, tuple of seconds and
+	/// nanoseconds.
+	#[getter]
+	fn timestamp(&self) -> (i64, i64) {
+		(self.packet.timestamp.tv_sec(), self.packet.timestamp.tv_nsec())
+	}
+
+	fn __str__(&self) -> String {
+		format!("{}", self.packet)
 	}
 }
 
@@ -216,5 +262,6 @@ fn luna_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	m.add_class::<Client>()?;
 	m.add_class::<Server>()?;
 	m.add_class::<LogIter>()?;
+	m.add_class::<PacketRecord>()?;
     Ok(())
 }

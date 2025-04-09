@@ -4,7 +4,7 @@ import threading
 from contextlib import ExitStack
 
 
-def feed(c: luna_py.Client):
+def feed(c: luna_py.Client) -> None:
     r = random.SystemRandom()
     try:
         for _ in range(10):
@@ -33,16 +33,14 @@ def test_client() -> None:
         generator_thread.start()
 
         # read all the log lines
-        output: list[str] = [*log]
+        output: list[luna_py.PacketRecord] = [*log]
 
     generator_thread.join()
     client.join()
 
     assert len(output) == 10
     ip, port = server_addr.rsplit(':', maxsplit=1)
-    for i, line in enumerate(output):
-        fields = line.split('\t')
-        assert fields[1] == ip.strip('[]')
-        assert fields[2] == port
-        assert int(fields[3]) == i
-        assert int(fields[5]) == buf_size
+    for i, record in enumerate(output):
+        assert record.source == server_addr
+        assert record.sequence == i
+        assert record.size == buf_size
