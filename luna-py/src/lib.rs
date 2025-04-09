@@ -1,7 +1,7 @@
 use std::{net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs}, sync::{mpsc::{self, RecvError}, Mutex}, thread};
 
 use luna_rs::{client, server, PacketData, ReceivedPacket, MIN_SIZE};
-use nix::{errno::Errno, sys::{socket::{self, SockaddrStorage}, time::TimeSpec}};
+use nix::{errno::Errno, sys::{socket::SockaddrStorage, time::TimeSpec}};
 use pyo3::{exceptions::{PyException, PyOSError, PyValueError}, prelude::*};
 
 
@@ -21,7 +21,7 @@ struct Server {
 	bind: Mutex<SockaddrStorage>,
 	#[pyo3(get)]
 	buffer_size: usize,
-	fd: Mutex<Option<i32>>,
+	handle: Mutex<Option<server::CloseHandle>>,
 }
 
 #[pyclass(frozen, module = "luna_py")]
@@ -178,44 +178,34 @@ impl Server {
 		Ok(Server {
 			bind: Mutex::new(bind_addr),
 			buffer_size,
-			fd: Mutex::new(None),
+			handle: Mutex::new(None),
 		})
 	}
 
 	pub fn start(&self, py: Python<'_>) -> PyResult<String> {
 		py.allow_threads(|| {
-			let (s, fd) = {
+			let (s, ch) = {
 				let mut b = self.bind.lock().unwrap();
 				let mut srv = server::Server::new(*b, self.buffer_size);
-				if let Err(e) = srv.bind().map_err(|e| e.to_string()) {
-					return Err(e)
-				}
+				let server_handle = srv.bind()?;
 				// address the server is *actually* bound to
 				*b = srv.bound().unwrap().clone();
-				let fd = srv.fd();
 				thread::spawn(move || srv.run().unwrap());
-				(format!("{}", b), fd)
+				(format!("{}", b), server_handle)
 			};
-			let mut f = self.fd.lock().unwrap();
-			*f = fd;
+			let mut h = self.handle.lock().unwrap();
+			*h = Some(ch);
 			Ok(s)
-		}).map_err(|e| PyException::new_err(e))
+		}).map_err(|e: Errno| PyOSError::new_err(e.desc()))
 	}
 
 	pub fn stop(&self, py: Python<'_>) -> PyResult<()> {
 		py.allow_threads(|| {
-			let f = self.fd.lock().unwrap();
-			match &*f {
-				None => (),
-				Some(fd) => match socket::shutdown(
-					*fd, socket::Shutdown::Both).err()
-				{
-					None => (),
-					Some(Errno::ENOTCONN) => (),
-					Some(e) => { return Err(e) },
-				}
+			let mut h = self.handle.lock().unwrap();
+			match h.take() {
+				None => Ok(()),
+				Some(handle) => handle.close()
 			}
-			Ok(())
 		}).map_err(|e| PyOSError::new_err(e.desc()))
 	}
 }

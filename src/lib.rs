@@ -137,7 +137,6 @@ mod tests {
 	use std::{net::{SocketAddrV6, ToSocketAddrs}, sync::mpsc::{self, RecvError}, thread};
 
 	use generator::Generator;
-	use nix::errno::Errno;
 	use socket::SockaddrStorage;
 
 	use super::*;
@@ -151,11 +150,10 @@ mod tests {
 		// address with 0 port to make the server pick a free one
 		let bind_addr = SockaddrStorage::from("[::1]:0".parse::<SocketAddrV6>()?);
 		let mut srv = server::Server::new(bind_addr, buf_size);
-		srv.bind()?;
+		let server_handle = srv.bind()?;
 		// address the server is *actually* bound to
 		let bind_addr = srv.bound().unwrap().clone();
 		let s = format!("{}", bind_addr);
-		let server_fd = srv.fd().unwrap();
 		thread::spawn(move || srv.run().unwrap());
 
 		let receiver = Generator::Rapid.run();
@@ -176,11 +174,7 @@ mod tests {
 		}
 		assert_eq!(log_receiver.recv(), Err(RecvError));
 
-		match socket::shutdown(server_fd, socket::Shutdown::Both).err() {
-			None => (),
-			Some(Errno::ENOTCONN) => (),
-			Some(e) => { return Err(Box::new(e)) },
-		}
+		server_handle.close()?;
 
 		if let Err(e) = ct.join() {
 			eprintln!("error in client thread: {e:?}");

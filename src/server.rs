@@ -1,5 +1,5 @@
 use crate::{set_rt_prio, ReceivedPacket, ECHO_FLAG, MIN_SIZE};
-use nix::{cmsg_space, sys::{mman, socket::{self, SockaddrLike, SockaddrStorage}, time::TimeSpec}};
+use nix::{cmsg_space, errno::Errno, sys::{mman, socket::{self, SockaddrLike, SockaddrStorage}, time::TimeSpec}};
 use std::{io::{Error, ErrorKind, IoSlice, IoSliceMut}, os::fd::{AsRawFd, OwnedFd}};
 
 
@@ -7,6 +7,11 @@ pub struct Server {
 	bind: SockaddrStorage,
 	buf_size: usize,
 	sock: Option<OwnedFd>,
+}
+
+
+pub struct CloseHandle {
+	fd: i32
 }
 
 
@@ -22,7 +27,7 @@ impl Server {
 	/// Bind the server to the configured address. If the port is 0 in
 	/// the bind address passed to Server::new(), this is where the
 	/// actual port is picked.
-	pub fn bind(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+	pub fn bind(&mut self) -> Result<CloseHandle, Errno> {
 		let sock = socket::socket(
 			self.bind.family().unwrap(),
 			socket::SockType::Datagram,
@@ -32,8 +37,9 @@ impl Server {
 		socket::setsockopt(&sock, socket::sockopt::ReceiveTimestampns, &true)?;
 		socket::bind(sock.as_raw_fd(), &self.bind)?;
 		self.bind = socket::getsockname::<SockaddrStorage>(sock.as_raw_fd())?;
+		let handle = CloseHandle { fd: sock.as_raw_fd() };
 		self.sock = Some(sock);
-		Ok(())
+		Ok(handle)
 	}
 
 	/// If the server is bound to a port (after successful
@@ -91,18 +97,25 @@ impl Server {
 		eprintln!("server shutting down");
 		Ok(())
 	}
+}
 
-	pub fn fd(&self) -> Option<i32> {
-		self.sock.as_ref().map(|s| s.as_raw_fd())
+
+impl CloseHandle {
+	pub fn close(&self) -> Result<(), Errno> {
+		match socket::shutdown(self.fd, socket::Shutdown::Both).err() {
+			None => Ok(()),
+			Some(Errno::ENOTCONN) => Ok(()),
+			Some(e) => return Err(e),
+		}
 	}
 }
 
 
 pub fn run(bind_addr: SockaddrStorage, buf_size: usize)
-		   -> Result<(), Box<dyn std::error::Error>>
+		   -> Result<CloseHandle, Box<dyn std::error::Error>>
 {
 	let mut srv = Server::new(bind_addr, buf_size);
-	srv.bind()?;
+	let handle = srv.bind()?;
 	srv.run()?;
-	Ok(())
+	Ok(handle)
 }
