@@ -27,19 +27,19 @@ def test_client() -> None:
         client = luna.Client(server_addr)
         generator_thread = threading.Thread(target=feed, args=(client,))
 
-        # client.run() returns an iterator over logs that'll stop after
-        # the client has sent all packets. The client must be closed for
-        # it do be done.
-        stack.callback(client.close)
-        log = client.start()
+        # client.start() or entering its context returns an iterator
+        # over logs that'll stop after the client has sent all
+        # packets. The client must be closed (or the context left) for
+        # the iterator to end.
+        log = stack.enter_context(client)
         generator_thread.start()
 
         # read all the log lines
         output: list[luna.PacketRecord] = [*log]
 
     assert server.running is False
+    assert client.running is False
     generator_thread.join()
-    client.join()
 
     assert len(output) == 10
     ip, port = server_addr.rsplit(':', maxsplit=1)

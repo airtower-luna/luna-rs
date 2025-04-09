@@ -217,6 +217,25 @@ impl Client {
 			}
 		}).map_err(|e| PyException::new_err(e))
 	}
+
+	fn __enter__<'py>(
+		slf: PyRef<'py, Self>, py: Python<'py>)
+		-> PyResult<LogIter>
+	{
+		slf.start(py)
+	}
+
+	fn __exit__<'py>(
+		slf: PyRef<'py, Self>, py: Python<'py>,
+		_exception_type: Option<&Bound<'py, PyType>>,
+		_exception_value: Option<&Bound<'py, PyException>>,
+		_traceback: Option<&Bound<'py, PyTraceback>>)
+		-> PyResult<bool>
+	{
+		slf.close(py);
+		slf.join(py)?;
+		Ok(false)
+	}
 }
 
 
