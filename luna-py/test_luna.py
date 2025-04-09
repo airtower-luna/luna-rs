@@ -17,7 +17,7 @@ def feed(c: luna.Client) -> None:
         c.close()
 
 
-def test_client() -> None:
+def test_full() -> None:
     buf_size = 32
     with ExitStack() as stack:
         server = stack.enter_context(
@@ -63,3 +63,17 @@ def test_client_not_connected():
 def test_class_name():
     client = luna.Client('[::1]:7800')
     assert repr(client).startswith('<luna.Client object')
+
+
+def test_server_double_join():
+    with luna.Server(bind='::1', port=0, buffer_size=luna.MIN_SIZE) as server:
+        pass
+    server.join()
+
+
+def test_client_double_join():
+    with luna.Server(bind='::1', port=0, buffer_size=luna.MIN_SIZE) as server:
+        client = luna.Client(server.bind)
+        with client:
+            client.close()
+    client.join()

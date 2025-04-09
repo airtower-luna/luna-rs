@@ -207,13 +207,11 @@ impl Client {
 	fn join(&self, py: Python<'_>) -> PyResult<()> {
 		py.allow_threads(|| {
 			let mut r = self.running.lock().unwrap();
-			if let None = &*r {
-				return Err("not running");
-			}
-			let t = r.take().unwrap();
-			match t.join() {
-				Err(_) => Err("error in send thread"),
-				Ok(_) => Ok(())
+			match r.take().map(|t| t.join()) {
+				None => Ok(()),
+				Some(e) => e
+					.map(|_| ())
+					.map_err(|_| "panic in client thread")
 			}
 		}).map_err(|e| PyException::new_err(e))
 	}
@@ -331,13 +329,11 @@ impl Server {
 	fn join(&self, py: Python<'_>) -> PyResult<()> {
 		py.allow_threads(|| {
 			let mut r = self.running.lock().unwrap();
-			if let None = &*r {
-				return Err("not running");
-			}
-			let t = r.take().unwrap();
-			match t.join() {
-				Err(_) => Err("error in server thread"),
-				Ok(_) => Ok(())
+			match r.take().map(|t| t.join()) {
+				None => Ok(()),
+				Some(e) => e
+					.map(|_| ())
+					.map_err(|_| "panic in server thread")
 			}
 		}).map_err(|e| PyException::new_err(e))
 	}
