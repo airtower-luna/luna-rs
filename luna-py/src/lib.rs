@@ -25,37 +25,6 @@ fn timespec_to_decimal<'py>(
 
 
 #[pyclass(frozen, module = "luna")]
-struct LogIter {
-	echo_receiver: Mutex<mpsc::Receiver<ReceivedPacket>>,
-}
-
-impl LogIter {
-	fn new(receiver: mpsc::Receiver<ReceivedPacket>) -> Self {
-		LogIter {
-			echo_receiver: Mutex::new(receiver),
-		}
-	}
-}
-
-#[pymethods]
-impl LogIter {
-	fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-		slf
-	}
-
-	fn __next__(&self, py: Python<'_>) -> Option<PacketRecord> {
-		py.allow_threads(|| {
-			let guard = self.echo_receiver.lock().unwrap();
-			match guard.recv() {
-				Err(RecvError) => None,
-				Ok(record) => Some(PacketRecord {packet: record}),
-			}
-		})
-	}
-}
-
-
-#[pyclass(frozen, module = "luna")]
 struct PacketRecord {
 	packet: ReceivedPacket
 }
@@ -110,6 +79,7 @@ struct Client {
 	echo: bool,
 	generator: Mutex<Option<mpsc::Sender<PacketData>>>,
 	running: Mutex<Option<thread::JoinHandle<Result<(), String>>>>,
+	log: Mutex<Option<mpsc::Receiver<ReceivedPacket>>>,
 }
 
 #[pymethods]
@@ -131,6 +101,7 @@ impl Client {
 			echo,
 			generator: Mutex::new(None),
 			running: Mutex::new(None),
+			log: Mutex::new(None),
 		})
 	}
 
@@ -139,30 +110,37 @@ impl Client {
 		format!("{}", self.server)
 	}
 
-	fn start(&self, py: Python<'_>) -> PyResult<LogIter> {
+	fn start(&self, py: Python<'_>) -> PyResult<()> {
 		py.allow_threads(|| {
 			let gen_receiver = {
 				let (gen_sender, gen_receiver) = mpsc::channel::<PacketData>();
 				let _ = self.generator.lock().unwrap().insert(gen_sender);
 				gen_receiver
 			};
-			let mut r = self.running.lock().unwrap();
-			match &*r {
-				Some(_) => return Err("already running"),
-				None => (),
+			let log_receiver = {
+				let mut r = self.running.lock().unwrap();
+				match &*r {
+					Some(_) => return Err("already running"),
+					None => (),
+				};
+				let (log_sender, log_receiver) = mpsc::channel::<ReceivedPacket>();
+				let (s, buf_size, echo) = (self.server.clone(), self.buffer_size, self.echo);
+				let t = thread::spawn(move || {
+					if let Err(e) = client::run(
+						s, buf_size, echo, gen_receiver, None, Some(log_sender))
+					{
+						return Err(format!("client run failed: {e}"));
+					}
+					Ok(())
+				});
+				*r = Some(t);
+				log_receiver
 			};
-			let (log_sender, log_receiver) = mpsc::channel::<ReceivedPacket>();
-			let (s, buf_size, echo) = (self.server.clone(), self.buffer_size, self.echo);
-			let t = thread::spawn(move || {
-				if let Err(e) = client::run(
-					s, buf_size, echo, gen_receiver, None, Some(log_sender))
-				{
-					return Err(format!("client run failed: {e}"));
-				}
-				Ok(())
-			});
-			let _ = r.insert(t);
-			Ok(LogIter::new(log_receiver))
+			{
+				let mut l = self.log.lock().unwrap();
+				*l = Some(log_receiver);
+			}
+			Ok(())
 		}).map_err(|e| PyException::new_err(e))
 	}
 
@@ -220,9 +198,10 @@ impl Client {
 
 	fn __enter__<'py>(
 		slf: PyRef<'py, Self>, py: Python<'py>)
-		-> PyResult<LogIter>
+		-> PyResult<PyRef<'py, Self>>
 	{
-		slf.start(py)
+		slf.start(py)?;
+		Ok(slf)
 	}
 
 	fn __exit__<'py>(
@@ -235,6 +214,23 @@ impl Client {
 		slf.close(py);
 		slf.join(py)?;
 		Ok(false)
+	}
+
+	fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+		slf
+	}
+
+	fn __next__(&self, py: Python<'_>) -> Option<PacketRecord> {
+		py.allow_threads(|| {
+			let guard = self.log.lock().unwrap();
+			match guard.as_ref()
+				.map(|r| r.recv())
+				.unwrap_or(Err(RecvError))
+			{
+				Err(RecvError) => None,
+				Ok(record) => Some(PacketRecord {packet: record}),
+			}
+		})
 	}
 }
 
@@ -391,7 +387,6 @@ fn luna(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	m.add("MIN_SIZE", MIN_SIZE)?;
 	m.add_class::<Client>()?;
 	m.add_class::<Server>()?;
-	m.add_class::<LogIter>()?;
 	m.add_class::<PacketRecord>()?;
     Ok(())
 }

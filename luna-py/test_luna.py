@@ -58,12 +58,12 @@ def test_full() -> None:
         # over logs that'll stop after the client has sent all
         # packets. The client must be closed (or the context left) for
         # the iterator to end.
-        log = stack.enter_context(client)
+        stack.enter_context(client)
         generator_thread.start()
         timeout_thread.start()
 
         # read the expected number of log lines
-        client_log: list[luna.PacketRecord] = [*itertools.islice(log, packets)]
+        client_log = [*itertools.islice(client, packets)]
 
     assert server.running is False
     assert client.running is False
