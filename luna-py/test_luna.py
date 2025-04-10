@@ -35,6 +35,11 @@ def test_full() -> None:
         server = stack.enter_context(
             luna.Server(bind='::1', port=0, buffer_size=buf_size))
         server_addr = server.bind
+        server_log: list[luna.PacketRecord] = list()
+        server_log_thread = threading.Thread(
+            target=lambda: server_log.extend(
+                itertools.islice(server, packets)))
+        server_log_thread.start()
 
         client = luna.Client(server_addr)
         sizes: list[int] = list()
@@ -58,19 +63,31 @@ def test_full() -> None:
         timeout_thread.start()
 
         # read the expected number of log lines
-        output: list[luna.PacketRecord] = [*itertools.islice(log, packets)]
+        client_log: list[luna.PacketRecord] = [*itertools.islice(log, packets)]
 
     assert server.running is False
     assert client.running is False
     generator_thread.join()
     timeout_thread.join()
+    server_log_thread.join()
 
-    assert len(output) == 10
+    assert len(client_log) == 10
     ip, port = server_addr.rsplit(':', maxsplit=1)
     # 4ms should be enough for loopback RTT even on slow systems
     diff = Decimal('0.004')
-    for i, record in enumerate(output):
+    for i, record in enumerate(client_log):
         assert record.source == server_addr
+        assert record.sequence == i
+        assert record.size == sizes[i]
+        assert isinstance(record.receive_time, Decimal)
+        assert isinstance(record.timestamp, Decimal)
+        assert record.receive_time - record.timestamp < diff
+
+    assert len(server_log) == 10
+    # 2ms should be enough for loopback one-way even on slow systems
+    diff = Decimal('0.002')
+    for i, record in enumerate(server_log):
+        assert record.source.startswith('[::1]:')
         assert record.sequence == i
         assert record.size == sizes[i]
         assert isinstance(record.receive_time, Decimal)

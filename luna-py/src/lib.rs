@@ -246,6 +246,7 @@ struct Server {
 	buffer_size: usize,
 	handle: Mutex<Option<server::CloseHandle>>,
 	running: Mutex<Option<thread::JoinHandle<Result<(), String>>>>,
+	log: Mutex<Option<mpsc::Receiver<ReceivedPacket>>>,
 }
 
 #[pymethods]
@@ -266,10 +267,11 @@ impl Server {
 			buffer_size,
 			handle: Mutex::new(None),
 			running: Mutex::new(None),
+			log: Mutex::new(None),
 		})
 	}
 
-	pub fn start(&self, py: Python<'_>) -> PyResult<String> {
+	pub fn start(&self, py: Python<'_>) -> PyResult<()> {
 		py.allow_threads(|| {
 			{
 				let r = self.running.lock().unwrap();
@@ -278,14 +280,15 @@ impl Server {
 					None => (),
 				}
 			}
-			let (s, ch, jh) = {
+			let (ch, jh, logger) = {
+				let (log_sender, logger) = mpsc::channel();
 				let mut b = self.bind.lock().unwrap();
-				let mut srv = server::Server::new(*b, self.buffer_size, None);
+				let mut srv = server::Server::new(*b, self.buffer_size, Some(log_sender));
 				let server_handle = srv.bind()?;
 				// address the server is *actually* bound to
 				*b = srv.bound().unwrap().clone();
 				let jh = thread::spawn(move || srv.run().map_err(|e| e.to_string()));
-				(format!("{}", b), server_handle, jh)
+				(server_handle, jh, logger)
 			};
 			{
 				let mut h = self.handle.lock().unwrap();
@@ -295,7 +298,11 @@ impl Server {
 				let mut j = self.running.lock().unwrap();
 				*j = Some(jh);
 			}
-			Ok(s)
+			{
+				let mut l = self.log.lock().unwrap();
+				*l = Some(logger);
+			}
+			Ok(())
 		}).map_err(|e: Errno| PyOSError::new_err(e.desc()))
 	}
 
@@ -358,6 +365,23 @@ impl Server {
 		slf.stop(py)?;
 		slf.join(py)?;
 		Ok(false)
+	}
+
+	fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+		slf
+	}
+
+	fn __next__(&self, py: Python<'_>) -> Option<PacketRecord> {
+		py.allow_threads(|| {
+			let guard = self.log.lock().unwrap();
+			match guard.as_ref()
+				.map(|r| r.recv())
+				.unwrap_or(Err(RecvError))
+			{
+				Err(RecvError) => None,
+				Ok(record) => Some(PacketRecord {packet: record}),
+			}
+		})
 	}
 }
 
