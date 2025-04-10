@@ -22,7 +22,10 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr, logger: Option<mpsc::
 	let mut iov = [IoSliceMut::new(&mut buffer)];
 	let server_addr = SockaddrStorage::from(server);
 
-	println!("{}", ReceivedPacket::header());
+	if logger.is_none() {
+		println!("{}", ReceivedPacket::header());
+	}
+
 	loop {
 		let r = socket::recvmsg::<socket::SockaddrStorage>(
 			sock, &mut iov, Some(&mut cmsgspace), flags)?;
