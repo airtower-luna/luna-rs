@@ -1,3 +1,4 @@
+import itertools
 import luna
 import pytest
 import random
@@ -6,19 +7,30 @@ from contextlib import ExitStack
 from decimal import Decimal
 
 
-def feed(c: luna.Client, sizes: list[int]) -> None:
+def feed(c: luna.Client, packets: int, sizes: list[int]) -> None:
     r = random.SystemRandom()
+    for _ in range(packets):
+        size = int(r.uniform(luna.MIN_SIZE, c.buffer_size))
+        c.put((0, 200000000), size)
+        sizes.append(size)
+
+
+def client_timeout(
+        c: luna.Client, event: threading.Event, timeout: float) -> None:
+    """Close the client after either the event is set, or the timeout
+    expires. This provides a fallback in case the client isn't closed
+    after all expected packets have been received.
+
+    """
     try:
-        for _ in range(10):
-            size = int(r.uniform(luna.MIN_SIZE, c.buffer_size))
-            c.put((0, 200000000), size)
-            sizes.append(size)
+        event.wait(timeout)
     finally:
         c.close()
 
 
 def test_full() -> None:
     buf_size = 1500
+    packets = 10
     with ExitStack() as stack:
         server = stack.enter_context(
             luna.Server(bind='::1', port=0, buffer_size=buf_size))
@@ -26,7 +38,16 @@ def test_full() -> None:
 
         client = luna.Client(server_addr)
         sizes: list[int] = list()
-        generator_thread = threading.Thread(target=feed, args=(client, sizes))
+        generator_thread = threading.Thread(
+            target=feed, args=(client, packets, sizes))
+
+        # The event stops the timeout thread early, so it can be
+        # joined after leaving the context (after all expected packets
+        # have been received).
+        done_event = threading.Event()
+        stack.callback(done_event.set)
+        timeout_thread = threading.Thread(
+            target=client_timeout, args=(client, done_event, 3.0))
 
         # client.start() or entering its context returns an iterator
         # over logs that'll stop after the client has sent all
@@ -34,13 +55,15 @@ def test_full() -> None:
         # the iterator to end.
         log = stack.enter_context(client)
         generator_thread.start()
+        timeout_thread.start()
 
-        # read all the log lines
-        output: list[luna.PacketRecord] = [*log]
+        # read the expected number of log lines
+        output: list[luna.PacketRecord] = [*itertools.islice(log, packets)]
 
     assert server.running is False
     assert client.running is False
     generator_thread.join()
+    timeout_thread.join()
 
     assert len(output) == 10
     ip, port = server_addr.rsplit(':', maxsplit=1)
