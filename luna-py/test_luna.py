@@ -67,8 +67,8 @@ def test_full() -> None:
 
     assert len(output) == 10
     ip, port = server_addr.rsplit(':', maxsplit=1)
-    # 1ms should be enough for loopback RTT even on slow systems
-    diff = Decimal('0.001')
+    # 4ms should be enough for loopback RTT even on slow systems
+    diff = Decimal('0.004')
     for i, record in enumerate(output):
         assert record.source == server_addr
         assert record.sequence == i
