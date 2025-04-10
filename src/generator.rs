@@ -22,12 +22,13 @@ pub enum Generator {
 impl Generator {
 	pub fn run(&self) -> mpsc::Receiver<PacketData> {
 		let (sender, receiver) = mpsc::channel::<PacketData>();
-		match self {
-			Generator::Default => thread::spawn(move || generator(sender)),
-			Generator::Large => thread::spawn(move || generator_large(sender)),
-			Generator::Rapid => thread::spawn(move || generator_rapid(sender)),
-			Generator::Vary => thread::spawn(move || generator_vary_size(sender)),
+		let func = match self {
+			Generator::Default => generator,
+			Generator::Large => generator_large,
+			Generator::Rapid => generator_rapid,
+			Generator::Vary => generator_vary_size,
 		};
+		thread::spawn(move || func(sender));
 		receiver
 	}
 }
