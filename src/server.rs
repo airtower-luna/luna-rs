@@ -1,11 +1,16 @@
 use crate::{set_rt_prio, ReceivedPacket, ECHO_FLAG, MIN_SIZE};
 use nix::{cmsg_space, errno::Errno, sys::{mman, socket::{self, SockaddrLike, SockaddrStorage}, time::TimeSpec}};
-use std::{io::{Error, ErrorKind, IoSlice, IoSliceMut}, os::fd::{AsRawFd, OwnedFd}, sync::Mutex};
+use std::{
+	io::{Error, ErrorKind, IoSlice, IoSliceMut},
+	os::fd::{AsRawFd, OwnedFd},
+	sync::{mpsc, Mutex}
+};
 
 
 pub struct Server {
 	bind: SockaddrStorage,
 	buf_size: usize,
+	logger: Option<mpsc::Sender<ReceivedPacket>>,
 	sock: Option<OwnedFd>,
 }
 
@@ -16,10 +21,15 @@ pub struct CloseHandle {
 
 
 impl Server {
-	pub fn new(bind_addr: SockaddrStorage, buf_size: usize) -> Self {
+	pub fn new(
+		bind_addr: SockaddrStorage, buf_size: usize,
+		logger: Option<mpsc::Sender<ReceivedPacket>>)
+		-> Self
+	{
 		Server {
 			bind: bind_addr,
 			buf_size,
+			logger,
 			sock: None,
 		}
 	}
@@ -75,7 +85,9 @@ impl Server {
 		let mut cmsgspace = cmsg_space!(TimeSpec);
 		let mut iov = [IoSliceMut::new(&mut buffer)];
 
-		println!("{}", ReceivedPacket::header());
+		if self.logger.is_none() {
+			println!("{}", ReceivedPacket::header());
+		}
 		loop {
 			let r = socket::recvmsg::<socket::SockaddrStorage>(fd, &mut iov, Some(&mut cmsgspace), flags)?;
 			if r.bytes == 0 {
@@ -91,7 +103,14 @@ impl Server {
 			}
 
 			if let Ok(recv) = ReceivedPacket::try_from(r) {
-				println!("{recv}");
+				if let Some(sender) = &self.logger {
+					if let Err(_) = sender.send(recv) {
+						// receiver hung up, no point in listening
+						break;
+					}
+				} else {
+					println!("{recv}");
+				}
 			}
 		}
 		eprintln!("server shutting down");
@@ -124,7 +143,7 @@ impl CloseHandle {
 pub fn run(bind_addr: SockaddrStorage, buf_size: usize)
 		   -> Result<CloseHandle, Box<dyn std::error::Error>>
 {
-	let mut srv = Server::new(bind_addr, buf_size);
+	let mut srv = Server::new(bind_addr, buf_size, None);
 	let handle = srv.bind()?;
 	srv.run()?;
 	Ok(handle)

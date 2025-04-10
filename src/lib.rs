@@ -135,10 +135,11 @@ impl ReceivedPacket {
 #[cfg(test)]
 mod tests {
 	use std::{
-		net::{SocketAddrV6, ToSocketAddrs},
+		net::{Ipv6Addr, SocketAddrV6, ToSocketAddrs},
+		str::FromStr,
 		sync::mpsc::{self, RecvError},
 		thread,
-		time::Duration,
+		time::Duration
 	};
 
 	use generator::Generator;
@@ -154,7 +155,9 @@ mod tests {
 		let buf_size = 32;
 		// address with 0 port to make the server pick a free one
 		let bind_addr = SockaddrStorage::from("[::1]:0".parse::<SocketAddrV6>()?);
-		let mut srv = server::Server::new(bind_addr, buf_size);
+		let (server_log_sender, server_logger) = mpsc::channel();
+		let mut srv = server::Server::new(
+			bind_addr, buf_size, Some(server_log_sender));
 		let server_handle = srv.bind()?;
 		// address the server is *actually* bound to
 		let bind_addr = srv.bound().unwrap().clone();
@@ -165,24 +168,38 @@ mod tests {
 		let server_addr: std::net::SocketAddr = s.to_socket_addrs()
 			.expect("cannot parse server address")
 			.next().expect("no address");
-		let (log_sender, log_receiver) = mpsc::channel();
+		let (client_log_sender, client_logger) = mpsc::channel();
 		let ct = thread::spawn(move || {
 			client::run(
 				server_addr, buf_size,
 				true, receiver,
-				Some(Duration::from_millis(50)), Some(log_sender)
+				Some(Duration::from_millis(50)), Some(client_log_sender)
 			).map_err(|e| e.to_string())
 		});
 
+		// check that the server sees all ten packets
+		let slh = thread::spawn(move || {
+			for i in 0..10 {
+				let r = server_logger.recv().unwrap();
+				assert_eq!(
+					r.source.as_sockaddr_in6().unwrap().ip(),
+					Ipv6Addr::from_str("::1").unwrap());
+				assert_eq!(r.size, MIN_SIZE);
+				assert_eq!(r.sequence, i);
+			}
+		});
+
+		// check that the client sees all ten echoes
 		for i in 0..10 {
-			let r = log_receiver.recv()?;
+			let r = client_logger.recv()?;
 			assert_eq!(r.source, bind_addr);
 			assert_eq!(r.size, MIN_SIZE);
 			assert_eq!(r.sequence, i);
 		}
-		assert_eq!(log_receiver.recv(), Err(RecvError));
+		assert_eq!(client_logger.recv(), Err(RecvError));
 
 		server_handle.close()?;
+		slh.join().unwrap();
 
 		if let Err(e) = ct.join() {
 			eprintln!("panic in client thread: {e:?}");

@@ -280,7 +280,7 @@ impl Server {
 			}
 			let (s, ch, jh) = {
 				let mut b = self.bind.lock().unwrap();
-				let mut srv = server::Server::new(*b, self.buffer_size);
+				let mut srv = server::Server::new(*b, self.buffer_size, None);
 				let server_handle = srv.bind()?;
 				// address the server is *actually* bound to
 				*b = srv.bound().unwrap().clone();
