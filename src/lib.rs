@@ -154,7 +154,7 @@ mod tests {
 		// address the server is *actually* bound to
 		let bind_addr = srv.bound().unwrap().clone();
 		let s = format!("{}", bind_addr);
-		thread::spawn(move || srv.run().unwrap());
+		let sh = thread::spawn(move || srv.run().unwrap());
 
 		let receiver = Generator::Rapid.run();
 		let server_addr: std::net::SocketAddr = s.to_socket_addrs()
@@ -177,7 +177,10 @@ mod tests {
 		server_handle.close()?;
 
 		if let Err(e) = ct.join() {
-			eprintln!("error in client thread: {e:?}");
+			eprintln!("panic in client thread: {e:?}");
+		};
+		if let Err(e) = sh.join() {
+			eprintln!("panic in client thread: {e:?}");
 		};
 
 		Ok(())
