@@ -50,9 +50,29 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr, logger: Option<mpsc::
 }
 
 
+/// Run the LUNA client in the current thread. Parameters are:
+///
+/// * server: address of the server to connect to
+///
+/// * buffer_size: size of send buffer, and receive buffer if `echo`
+///   is true. If larger packets are requested, they will be truncated
+///   to the buffer size.
+///
+/// * echo: if `true`, request that the server echo packets back to
+///   the client
+///
+/// * receiver: read what packets to send from this channel
+///
+/// * echo_wait: if `Some`, the duration to wait for pending echo
+///   packets after `receiver` has been closed
+///
+/// * echo_logger: if `Some`, information on received echoes (if
+///   `echo` is `true` will be sent to this channel, otherwise it will
+///   be written to standard output.
 pub fn run(
 	server: SocketAddr, buffer_size: usize, echo: bool,
 	receiver: mpsc::Receiver<PacketData>,
+	echo_wait: Option<Duration>,
 	echo_logger: Option<mpsc::Sender<ReceivedPacket>>)
 	-> Result<(), Box<dyn std::error::Error>>
 {
@@ -135,8 +155,10 @@ pub fn run(
 	}
 
 	socket::shutdown(sock.as_raw_fd(), socket::Shutdown::Write)?;
-	// wait a little longer for pending echos
-	thread::sleep(Duration::from_millis(500));
+	// delay so pending echos can arrive
+	if let Some(w) = echo_wait {
+		thread::sleep(w);
+	}
 	socket::shutdown(sock.as_raw_fd(), socket::Shutdown::Read)?;
 	if let Some(t) = et {
 		if let Err(e) = t.join() {

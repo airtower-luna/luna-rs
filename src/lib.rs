@@ -134,7 +134,12 @@ impl ReceivedPacket {
 
 #[cfg(test)]
 mod tests {
-	use std::{net::{SocketAddrV6, ToSocketAddrs}, sync::mpsc::{self, RecvError}, thread};
+	use std::{
+		net::{SocketAddrV6, ToSocketAddrs},
+		sync::mpsc::{self, RecvError},
+		thread,
+		time::Duration,
+	};
 
 	use generator::Generator;
 	use socket::SockaddrStorage;
@@ -161,10 +166,13 @@ mod tests {
 			.expect("cannot parse server address")
 			.next().expect("no address");
 		let (log_sender, log_receiver) = mpsc::channel();
-		let ct = thread::spawn(
-			move ||
-				client::run(server_addr, buf_size,
-							true, receiver, Some(log_sender)).unwrap());
+		let ct = thread::spawn(move || {
+			client::run(
+				server_addr, buf_size,
+				true, receiver,
+				Some(Duration::from_millis(50)), Some(log_sender)
+			).map_err(|e| e.to_string())
+		});
 
 		for i in 0..10 {
 			let r = log_receiver.recv()?;
@@ -180,7 +188,7 @@ mod tests {
 			eprintln!("panic in client thread: {e:?}");
 		};
 		if let Err(e) = sh.join() {
-			eprintln!("panic in client thread: {e:?}");
+			eprintln!("panic in server thread: {e:?}");
 		};
 
 		Ok(())

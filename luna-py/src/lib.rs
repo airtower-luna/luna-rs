@@ -154,7 +154,9 @@ impl Client {
 			let (log_sender, log_receiver) = mpsc::channel::<ReceivedPacket>();
 			let (s, buf_size, echo) = (self.server.clone(), self.buffer_size, self.echo);
 			let t = thread::spawn(move || {
-				if let Err(e) = client::run(s, buf_size, echo, gen_receiver, Some(log_sender)) {
+				if let Err(e) = client::run(
+					s, buf_size, echo, gen_receiver, None, Some(log_sender))
+				{
 					return Err(format!("client run failed: {e}"));
 				}
 				Ok(())

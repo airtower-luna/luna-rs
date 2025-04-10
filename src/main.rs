@@ -1,7 +1,10 @@
 use luna_rs::{client, generator::Generator, server};
 use clap::{Parser, Subcommand};
 use nix::sys::socket::SockaddrStorage;
-use std::net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs};
+use std::{
+	net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
+	time::Duration,
+};
 
 
 #[derive(Parser, Debug)]
@@ -50,7 +53,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				.to_socket_addrs()
 				.expect("cannot parse server address")
 				.next().expect("no address");
-			client::run(server_addr, args.buffer_size, echo, receiver, None)?;
+			client::run(
+				server_addr, args.buffer_size, echo, receiver,
+				Some(Duration::from_millis(200)), None)?;
 		},
 		Commands::Server { port, bind } => {
 			let bind_addr: SockaddrStorage = if bind.is_ipv6() {
