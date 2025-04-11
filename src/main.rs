@@ -28,11 +28,13 @@ enum Commands {
 		/// request packet echo from server
 		#[arg(short, long, default_value_t = false)]
 		echo: bool,
-		/// generator selection
-		#[arg(short, long, value_enum, default_value = "default")]
+		/// select a built-in generator
+		#[arg(short, long, value_enum, default_value = "default", group = "generator_choice")]
 		generator: Generator,
+		/// use the 'generate' function from this Python file as the
+		/// generator
 		#[cfg(feature = "python")]
-		#[arg(long, value_name = "MODULE_PY")]
+		#[arg(long, value_name = "MODULE_PY", group = "generator_choice")]
 		py_generator: Option<PathBuf>,
 	},
 	Server {
@@ -68,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			echo,
 			generator,
 			#[cfg(feature = "python")]
-			py_generator
+			py_generator,
 		} => {
 			#[cfg(feature = "python")]
 			let generator = py_generator
