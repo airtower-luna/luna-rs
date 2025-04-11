@@ -138,13 +138,3 @@ impl CloseHandle {
 		}
 	}
 }
-
-
-pub fn run(bind_addr: SockaddrStorage, buf_size: usize)
-		   -> Result<CloseHandle, Box<dyn std::error::Error>>
-{
-	let mut srv = Server::new(bind_addr, buf_size, None);
-	let handle = srv.bind()?;
-	srv.run()?;
-	Ok(handle)
-}

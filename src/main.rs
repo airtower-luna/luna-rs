@@ -1,9 +1,8 @@
 use luna_rs::{client, generator::Generator, server};
 use clap::{Parser, Subcommand};
-use nix::sys::socket::SockaddrStorage;
+use nix::sys::{signal, socket::SockaddrStorage};
 use std::{
-	net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
-	time::Duration,
+	net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs}, sync::OnceLock, time::Duration
 };
 #[cfg(feature = "python")]
 use std::{ffi::CString, fs, path::PathBuf};
@@ -47,6 +46,18 @@ enum Commands {
 }
 
 
+static SERVER_CLOSE: OnceLock<server::CloseHandle> = OnceLock::new();
+
+
+extern fn handle_shutdown_sig(signal: libc::c_int) {
+	let signal = signal::Signal::try_from(signal).unwrap();
+	match signal {
+		signal::Signal::SIGINT | signal::Signal::SIGTERM => SERVER_CLOSE.get().map(|h| h.close()),
+		_ => panic!("signal handler was installed for unsupported signal"),
+	};
+}
+
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args = Args::parse();
 	#[cfg(debug_assertions)]
@@ -84,7 +95,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				let s = format!("{}:{}", bind, port);
 				SockaddrStorage::from(s.parse::<SocketAddrV4>()?)
 			};
-			server::run(bind_addr, args.buffer_size)?;
+			let mut srv = server::Server::new(bind_addr, args.buffer_size, None);
+			let handle = srv.bind()?;
+			if let Err(_) = SERVER_CLOSE.set(handle) {
+				panic!("programming error: server close handle already set")
+			}
+			let handler = signal::SigHandler::Handler(handle_shutdown_sig);
+			unsafe {
+				signal::signal(signal::Signal::SIGINT, handler)?;
+				signal::signal(signal::Signal::SIGTERM, handler)?;
+			}
+			srv.run()?;
 		},
 	}
 	Result::Ok(())
