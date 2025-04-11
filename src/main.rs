@@ -5,6 +5,8 @@ use std::{
 	net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
 	time::Duration,
 };
+#[cfg(feature = "python")]
+use std::{ffi::CString, fs, path::PathBuf};
 
 
 #[derive(Parser, Debug)]
@@ -30,6 +32,9 @@ enum Commands {
 		/// generator selection
 		#[arg(short, long, value_enum, default_value = "default")]
 		generator: Generator,
+		#[cfg(feature = "python")]
+		#[arg(long, value_name = "MODULE_PY")]
+		py_generator: Option<PathBuf>,
 	},
 	Server {
 		/// port to listen on
@@ -47,8 +52,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	#[cfg(debug_assertions)]
 	eprintln!("{args:?}");
 	match args.command {
-		Commands::Client { server, echo, generator } => {
-			let receiver = generator.run();
+		Commands::Client {
+			server,
+			echo,
+			generator,
+			#[cfg(feature = "python")]
+			py_generator
+		} => {
+			#[cfg(feature = "python")]
+			let generator = py_generator
+				.map(|p| fs::read_to_string(p).unwrap())
+				.map(|s| CString::new(s).unwrap())
+				.map(|s| Generator::Py(s))
+				.or(Some(generator));
+			#[cfg(not(feature = "python"))]
+			let generator = Some(generator);
+			let receiver = generator.unwrap().run();
 			let server_addr: SocketAddr = server
 				.to_socket_addrs()
 				.expect("cannot parse server address")

@@ -28,10 +28,18 @@ doing so requires the `CAP_SYS_NICE` and `CAP_IPC_LOCK` capabilities
 system). It will still run without those capabilities, just with error
 messages during start.
 
-## Python bindings
+## Python bindings :snake:
 
 The [`luna-py/` directory](./luna-py/) contains Python bindings using
 PyO3. You can use [Maturin](https://www.maturin.rs/) to build a wheel
 package (`maturin build`), or run
 [Nox](https://nox.thea.codes/en/stable/) to build and test
 (`nox`). [See the test](./luna-py/test_luna.py) for a usage example.
+
+## Python generator
+
+Instead of integrating LUNA into your Python program, you can also
+write only the generator in Python, and have the client call it
+instead of one of the built-in generators. See
+[`examples/generator_random.py`](./examples/generator_random.py) for
+an example.

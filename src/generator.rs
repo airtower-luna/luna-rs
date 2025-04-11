@@ -1,5 +1,7 @@
 use std::sync::mpsc;
 use std::thread;
+#[cfg(feature = "python")]
+use std::ffi::{CStr, CString};
 
 use clap::ValueEnum;
 use nix::sys::time::TimeSpec;
@@ -7,7 +9,7 @@ use nix::sys::time::TimeSpec;
 use crate::{PacketData, MIN_SIZE};
 
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Generator {
 	/// send a minimum size packet every 0.5s
 	Default,
@@ -17,21 +19,28 @@ pub enum Generator {
 	Large,
 	/// change size between minimum and 1500, send every 1ms
 	Vary,
+	/// load the given string as a Python module and run its
+	/// "generate()" function to produce packet data
+	#[cfg(feature = "python")]
+	#[value(skip)]
+	Py(CString),
 }
 
 impl Generator {
-	pub fn run(&self) -> mpsc::Receiver<PacketData> {
+	pub fn run(self) -> mpsc::Receiver<PacketData> {
 		let (sender, receiver) = mpsc::channel::<PacketData>();
-		let func = match self {
-			Generator::Default => generator,
-			Generator::Large => generator_large,
-			Generator::Rapid => generator_rapid,
-			Generator::Vary => generator_vary_size,
+		match self {
+			Generator::Default => thread::spawn(move || generator(sender)),
+			Generator::Large => thread::spawn(move || generator_large(sender)),
+			Generator::Rapid => thread::spawn(move || generator_rapid(sender)),
+			Generator::Vary => thread::spawn(move || generator_vary_size(sender)),
+			#[cfg(feature = "python")]
+			Generator::Py(code) => thread::spawn(move || generator_py(&code, sender)),
 		};
-		thread::spawn(move || func(sender));
 		receiver
 	}
 }
+
 
 fn generator(target: mpsc::Sender<PacketData>) {
 	let step = TimeSpec::new(0, 500000000);
@@ -75,6 +84,38 @@ fn generator_vary_size(target: mpsc::Sender<PacketData>) {
 }
 
 
+#[cfg(feature = "python")]
+fn generator_py(generator_code: &CStr, target: mpsc::Sender<PacketData>) {
+    use pyo3::exceptions::PyConnectionAbortedError;
+    use pyo3::prelude::*;
+	use pyo3::ffi::c_str;
+
+	pyo3::prepare_freethreaded_python();
+	Python::with_gil(|py| {
+		let generator = PyModule::from_code(
+			py,
+			generator_code,
+			c_str!("generator.py"),
+			c_str!("generator"),
+		)?;
+		generator.setattr("MIN_SIZE", MIN_SIZE)?;
+		let method = generator.getattr("generate")?;
+		let i = method.call0()?;
+		i.try_iter()?
+			.map(|t|
+				 t.and_then(|x| x.extract::<((i64, i64), usize)>()))
+			.try_for_each(|t| {
+				let ((sec, nsec), size) = t?;
+				let step = TimeSpec::new(sec, nsec);
+				target.send(PacketData { delay: step, size })
+					.map_err(|_| PyConnectionAbortedError::new_err(
+						"client thread closed connection"))
+			})?;
+		PyResult::Ok(())
+	}).inspect_err(|e| eprintln!("Generator module failed: {}", e)).unwrap();
+}
+
+
 #[cfg(test)]
 mod tests {
 	use mpsc::RecvError;
@@ -107,6 +148,26 @@ mod tests {
 			println!("{i} {pkt:?}");
 			assert_eq!(pkt.delay, step);
 			assert_eq!(pkt.size, size[i]);
+		}
+		assert_eq!(receiver.recv(), Err(RecvError));
+		Ok(())
+	}
+
+	#[cfg(feature = "python")]
+	#[test]
+	fn py_gen() -> Result<(), Box<dyn std::error::Error>> {
+		let code = CString::new(include_str!(concat!(
+			env!("CARGO_MANIFEST_DIR"),
+			"/examples/generator_random.py"
+		)))?;
+		let receiver = Generator::Py(code).run();
+		let step = TimeSpec::new(0, 1000000);
+		for i in 0..10 {
+			let pkt = receiver.recv()?;
+			println!("{i} {pkt:?}");
+			assert_eq!(pkt.delay, step);
+			assert!(pkt.size >= MIN_SIZE);
+			assert!(pkt.size <= 512);
 		}
 		assert_eq!(receiver.recv(), Err(RecvError));
 		Ok(())

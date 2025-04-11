@@ -10,7 +10,7 @@ from decimal import Decimal
 def feed(c: luna.Client, packets: int, sizes: list[int]) -> None:
     r = random.SystemRandom()
     for _ in range(packets):
-        size = int(r.uniform(luna.MIN_SIZE, c.buffer_size))
+        size = r.randint(luna.MIN_SIZE, c.buffer_size)
         c.put((0, 2000000), size)
         sizes.append(size)
 
