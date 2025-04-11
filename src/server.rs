@@ -1,5 +1,14 @@
 use crate::{set_rt_prio, ReceivedPacket, ECHO_FLAG, MIN_SIZE};
-use nix::{cmsg_space, errno::Errno, sys::{mman, socket::{self, SockaddrLike, SockaddrStorage}, time::TimeSpec}};
+use nix::{
+	cmsg_space,
+	errno::Errno,
+	sys::{
+		mman,
+		resource,
+		socket::{self, SockaddrLike, SockaddrStorage},
+		time::TimeSpec
+	}
+};
 use std::{
 	io::{Error, ErrorKind, IoSlice, IoSliceMut},
 	os::fd::{AsRawFd, OwnedFd},
@@ -88,6 +97,9 @@ impl Server {
 		if self.logger.is_none() {
 			println!("{}", ReceivedPacket::header());
 		}
+
+		let rusage_pre = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
+
 		loop {
 			let r = socket::recvmsg::<socket::SockaddrStorage>(fd, &mut iov, Some(&mut cmsgspace), flags)?;
 			if r.bytes == 0 {
@@ -114,6 +126,12 @@ impl Server {
 			}
 		}
 		eprintln!("server shutting down");
+		let rusage_post = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
+		eprintln!(
+			"major page faults: {}, minor page faults: {}",
+			rusage_post.major_page_faults() - rusage_pre.major_page_faults(),
+			rusage_post.minor_page_faults() - rusage_pre.minor_page_faults()
+		);
 		Ok(())
 	}
 }
