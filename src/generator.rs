@@ -43,7 +43,7 @@ impl Generator {
 
 
 fn generator(target: mpsc::Sender<PacketData>) {
-	let step = TimeSpec::new(0, 500000000);
+	let step = TimeSpec::new(0, 500_000_000);
 	for _ in 0..10 {
 		target.send(PacketData { delay: step, size: MIN_SIZE }).unwrap();
 	}
@@ -51,7 +51,7 @@ fn generator(target: mpsc::Sender<PacketData>) {
 
 
 fn generator_rapid(target: mpsc::Sender<PacketData>) {
-	let step = TimeSpec::new(0, 30000);
+	let step = TimeSpec::new(0, 30_000);
 	for _ in 0..10 {
 		target.send(PacketData { delay: step, size: MIN_SIZE }).unwrap();
 	}
@@ -59,7 +59,7 @@ fn generator_rapid(target: mpsc::Sender<PacketData>) {
 
 
 fn generator_large(target: mpsc::Sender<PacketData>) {
-	let step = TimeSpec::new(0, 1000000);
+	let step = TimeSpec::new(0, 1_000_000);
 	for _ in 0..10 {
 		target.send(PacketData { delay: step, size: 1500 }).unwrap();
 	}
@@ -67,7 +67,7 @@ fn generator_large(target: mpsc::Sender<PacketData>) {
 
 
 fn generator_vary_size(target: mpsc::Sender<PacketData>) {
-	let step = TimeSpec::new(0, 1000000);
+	let step = TimeSpec::new(0, 1_000_000);
 	let max_size = 1500;
 	let mut s = MIN_SIZE;
 	let mut grow = true;
@@ -125,7 +125,7 @@ mod tests {
 	#[test]
 	fn default() -> Result<(), RecvError> {
 		let receiver = Generator::Default.run();
-		let step = TimeSpec::new(0, 500000000);
+		let step = TimeSpec::new(0, 500_000_000);
 		for i in 0..10 {
 			let pkt = receiver.recv()?;
 			println!("{i} {pkt:?}");
@@ -139,7 +139,7 @@ mod tests {
 	#[test]
 	fn vary() -> Result<(), RecvError> {
 		let receiver = Generator::Vary.run();
-		let step = TimeSpec::new(0, 1000000);
+		let step = TimeSpec::new(0, 1_000_000);
 		let size = vec![
 			21, 42, 84, 168, 336, 672, 1344, 1500, 1344, 672,
 			336, 168, 84, 42, 21, 42, 84, 168, 336, 672];
@@ -161,7 +161,7 @@ mod tests {
 			"/examples/generator_random.py"
 		)))?;
 		let receiver = Generator::Py(code).run();
-		let step = TimeSpec::new(0, 1000000);
+		let step = TimeSpec::new(0, 1_000_000);
 		for i in 0..10 {
 			let pkt = receiver.recv()?;
 			println!("{i} {pkt:?}");

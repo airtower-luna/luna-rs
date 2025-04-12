@@ -136,7 +136,6 @@ impl ReceivedPacket {
 mod tests {
 	use std::{
 		net::{Ipv6Addr, SocketAddrV6, ToSocketAddrs},
-		str::FromStr,
 		sync::mpsc::{self, RecvError},
 		thread,
 		time::Duration
@@ -183,7 +182,7 @@ mod tests {
 				let r = server_logger.recv().unwrap();
 				assert_eq!(
 					r.source.as_sockaddr_in6().unwrap().ip(),
-					Ipv6Addr::from_str("::1").unwrap());
+					"::1".parse::<Ipv6Addr>().unwrap());
 				assert_eq!(r.size, MIN_SIZE);
 				assert_eq!(r.sequence, i);
 			}
