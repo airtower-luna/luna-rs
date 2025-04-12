@@ -39,14 +39,27 @@ pub fn set_rt_prio(offset: i32) -> Result<(), Error> {
 	let max_rt_prio = unsafe {
 		libc::sched_get_priority_max(libc::SCHED_RR)
 	};
+	#[cfg(not(target_env = "musl"))]
 	let sparam = libc::sched_param {
 		sched_priority: max_rt_prio.min(min_rt_prio + offset),
 	};
-	let ret = unsafe {
-		libc::sched_setscheduler(0, libc::SCHED_RR, &sparam)
+	#[cfg(target_env = "musl")]
+	let sparam = libc::sched_param {
+		sched_priority: max_rt_prio.min(min_rt_prio + offset),
+		// the following four values are required with musl, but
+		// shouldn't matter because we use SCHED_RR, not
+		// SCHED_SPORADIC ("ss" is short for "sporadic server")
+		sched_ss_low_priority: 0,
+		sched_ss_repl_period: timespec { tv_sec: 0, tv_nsec: 0 },
+		sched_ss_init_budget: timespec { tv_sec: 0, tv_nsec: 0 },
+		sched_ss_max_repl: 0,
 	};
-	if ret < 0 {
-		Err(Error::last_os_error())
+	let ret = unsafe {
+		let thread_id = libc::pthread_self();
+		libc::pthread_setschedparam(thread_id, libc::SCHED_RR, &sparam)
+	};
+	if ret != 0 {
+		Err(Error::from_raw_os_error(ret))
 	} else {
 		Ok(())
 	}
