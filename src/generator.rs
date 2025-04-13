@@ -52,7 +52,7 @@ fn generator(target: mpsc::Sender<PacketData>) {
 
 fn generator_rapid(target: mpsc::Sender<PacketData>) {
 	let step = TimeSpec::new(0, 30_000);
-	for _ in 0..10 {
+	for _ in 0..200 {
 		target.send(PacketData { delay: step, size: MIN_SIZE }).unwrap();
 	}
 }

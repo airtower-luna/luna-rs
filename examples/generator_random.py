@@ -24,6 +24,6 @@ def generate() -> Iterator[tuple[tuple[int, int], int]]:
 
     """
     r = random.SystemRandom()
-    for _ in range(10):
+    for _ in range(200):
         size = r.randint(MIN_SIZE, 512)
-        yield ((0, 1000000), size)
+        yield ((0, 1_000_000), size)
