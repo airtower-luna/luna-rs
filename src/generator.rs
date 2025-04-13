@@ -162,7 +162,7 @@ mod tests {
 		)))?;
 		let receiver = Generator::Py(code).run();
 		let step = TimeSpec::new(0, 1_000_000);
-		for i in 0..10 {
+		for i in 0..200 {
 			let pkt = receiver.recv()?;
 			println!("{i} {pkt:?}");
 			assert_eq!(pkt.delay, step);

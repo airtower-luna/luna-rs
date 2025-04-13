@@ -191,7 +191,7 @@ mod tests {
 
 		// check that the server sees all ten packets
 		let slh = thread::spawn(move || {
-			for i in 0..10 {
+			for i in 0..200 {
 				let r = server_logger.recv().unwrap();
 				assert_eq!(
 					r.source.as_sockaddr_in6().unwrap().ip(),
@@ -202,7 +202,7 @@ mod tests {
 		});
 
 		// check that the client sees all ten echoes
-		for i in 0..10 {
+		for i in 0..200 {
 			let r = client_logger.recv()?;
 			assert_eq!(r.source, bind_addr);
 			assert_eq!(r.size, MIN_SIZE);
