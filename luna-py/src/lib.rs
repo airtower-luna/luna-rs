@@ -67,6 +67,10 @@ impl PacketRecord {
 	fn __str__(&self) -> String {
 		format!("{}", self.packet)
 	}
+
+	fn __repr__(&self) -> String {
+		format!("<luna.PacketRecord: {:?}>", self.packet)
+	}
 }
 
 

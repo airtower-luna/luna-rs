@@ -94,6 +94,9 @@ def test_full() -> None:
         assert isinstance(record.timestamp, Decimal)
         assert record.receive_time - record.timestamp < diff
 
+    assert repr(client_log[0]).startswith(
+        '<luna.PacketRecord: ReceivedPacket {')
+
 
 def test_client_not_connected():
     client = luna.Client('[::1]:7800')
