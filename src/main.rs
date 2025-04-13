@@ -51,7 +51,7 @@ enum Commands {
 static SERVER_CLOSE: OnceLock<server::CloseHandle> = OnceLock::new();
 
 
-extern fn handle_shutdown_sig(signal: libc::c_int) {
+extern "C" fn handle_shutdown_sig(signal: libc::c_int) {
 	let signal = signal::Signal::try_from(signal).unwrap();
 	match signal {
 		signal::Signal::SIGINT | signal::Signal::SIGTERM => SERVER_CLOSE.get().map(|h| h.close()),
