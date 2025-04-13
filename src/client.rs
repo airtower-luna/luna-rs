@@ -125,10 +125,8 @@ pub fn run(
 		eprintln!("could not lock memory: {}", e);
 	}
 
-	let mut t = clock_gettime(CLOCK)?;
+	let mut t = None;
 	let mut seq: u32 = 0;
-	// Add a warmup offset before the first packet
-	t = t + TimeSpec::new(0, 500000);
 
 	let rusage_pre = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
 
@@ -137,10 +135,13 @@ pub fn run(
 			Ok(next) => next,
 			Err(mpsc::RecvError) => {break 'send;}
 		};
-		t = t + next.delay;
+		t = t.or_else(|| Some(clock_gettime(CLOCK).unwrap()))
+			.map(|u| u + next.delay);
 
 		loop {
-			match clock_nanosleep(CLOCK, ClockNanosleepFlags::TIMER_ABSTIME, &t) {
+			match clock_nanosleep(
+				CLOCK, ClockNanosleepFlags::TIMER_ABSTIME, t.as_ref().unwrap())
+			{
 				Ok(_) => break,
 				// restart sleep if it was interrupted
 				Err(nix::Error::EINTR) => (),
