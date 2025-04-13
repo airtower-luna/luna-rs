@@ -15,12 +15,17 @@ use nix::time::{ClockId, ClockNanosleepFlags, clock_gettime, clock_nanosleep};
 static CLOCK: ClockId = ClockId::CLOCK_REALTIME;
 
 
-fn echo_log(sock: i32, max_len: usize, server: SocketAddr, logger: Option<mpsc::Sender<ReceivedPacket>>) -> Result<(), Error> {
+fn echo_log(
+	sock: i32, max_len: usize, server: SocketAddr,
+	logger: Option<mpsc::Sender<ReceivedPacket>>)
+	-> Result<usize, Error>
+{
 	let flags = socket::MsgFlags::empty();
 	let mut buffer = vec![0u8; max_len];
 	let mut cmsgspace = cmsg_space!(TimeSpec);
 	let mut iov = [IoSliceMut::new(&mut buffer)];
 	let server_addr = SockaddrStorage::from(server);
+	let mut count: usize = 0;
 
 	if logger.is_none() {
 		println!("{}", ReceivedPacket::header());
@@ -47,9 +52,10 @@ fn echo_log(sock: i32, max_len: usize, server: SocketAddr, logger: Option<mpsc::
 			} else {
 				println!("{recv}");
 			}
+			count += 1;
 		}
 	}
-	Ok(())
+	Ok(count)
 }
 
 
@@ -164,8 +170,12 @@ pub fn run(
 	}
 	socket::shutdown(sock.as_raw_fd(), socket::Shutdown::Read)?;
 	if let Some(t) = et {
-		if let Err(e) = t.join() {
-			eprintln!("error in echo thread: {e:?}");
+		match t.join() {
+			Err(e) => eprintln!("panic in echo thread: {e:?}"),
+			Ok(r) => match r {
+				Err(e) => eprintln!("error in echo thread: {e:?}"),
+				Ok(count) => eprintln!("received {count} echo packets"),
+			}
 		};
 	}
 
