@@ -163,6 +163,8 @@ pub fn run(
 		buffer.splice(0..4, seq.to_be_bytes());
 	}
 
+	let rusage_post = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
+
 	socket::shutdown(sock.as_raw_fd(), socket::Shutdown::Write)?;
 	// delay so pending echos can arrive
 	if let Some(w) = echo_wait {
@@ -179,7 +181,6 @@ pub fn run(
 		};
 	}
 
-	let rusage_post = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
 	eprintln!(
 		"major page faults: {}, minor page faults: {}",
 		rusage_post.major_page_faults() - rusage_pre.major_page_faults(),

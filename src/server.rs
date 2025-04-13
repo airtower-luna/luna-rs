@@ -125,8 +125,8 @@ impl Server {
 				}
 			}
 		}
-		eprintln!("server shutting down");
 		let rusage_post = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
+		eprintln!("server shutting down");
 		eprintln!(
 			"major page faults: {}, minor page faults: {}",
 			rusage_post.major_page_faults() - rusage_pre.major_page_faults(),
