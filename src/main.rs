@@ -74,6 +74,34 @@ extern "C" fn handle_shutdown_sig(signal: libc::c_int) {
 }
 
 
+fn run_client(
+	server: String,
+	buffer_size: usize,
+	echo: bool,
+	generator: Generator,
+	generator_option: Vec<(String, String)>)
+	-> Result<(), Box<dyn std::error::Error>>
+{
+	let go = {
+		let mut go = HashMap::with_capacity(generator_option.len());
+		for (name, value) in generator_option {
+			go.insert(name, value);
+		}
+		go
+	};
+	let receiver = generator.run(go)
+		.inspect_err(|e| eprintln!("{}", e))?;
+	let server_addr: SocketAddr = server
+		.to_socket_addrs()
+		.expect("cannot parse server address")
+		.next().expect("no address");
+	client::run(
+		server_addr, buffer_size, echo, receiver,
+		Some(Duration::from_millis(200)), None)?;
+	Ok(())
+}
+
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args = Args::parse();
 	#[cfg(debug_assertions)]
@@ -96,21 +124,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				.or(Some(generator));
 			#[cfg(not(feature = "python"))]
 			let generator = Some(generator);
-			let go = {
-				let mut go = HashMap::with_capacity(generator_option.len());
-				for (name, value) in generator_option {
-					go.insert(name, value);
-				}
-				go
-			};
-			let receiver = generator.unwrap().run(go)?;
-			let server_addr: SocketAddr = server
-				.to_socket_addrs()
-				.expect("cannot parse server address")
-				.next().expect("no address");
-			client::run(
-				server_addr, args.buffer_size, echo, receiver,
-				Some(Duration::from_millis(200)), None)?;
+			run_client(
+				server,
+				args.buffer_size,
+				echo,
+				generator.unwrap(),
+				generator_option
+			)?;
 		},
 		Commands::Server { port, bind } => {
 			let bind_addr: SockaddrStorage = if bind.is_ipv6() {

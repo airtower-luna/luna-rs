@@ -1,10 +1,11 @@
 use std::{
 	collections::HashMap,
-	fmt::{self, Debug},
+	fmt::{self, Debug, Display},
 	num::ParseIntError,
+	ops::Deref,
 	sync::mpsc,
 	thread,
-	time::Duration,
+	time::Duration
 };
 #[cfg(feature = "python")]
 use std::ffi::{CStr, CString};
@@ -13,6 +14,25 @@ use clap::ValueEnum;
 use nix::sys::time::TimeSpec;
 
 use crate::{PacketData, MIN_SIZE};
+
+
+#[derive(Debug)]
+pub struct InvalidOption {
+	pub option: String,
+	pub source: Box<dyn std::error::Error>,
+}
+
+impl Display for InvalidOption {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "Option \"{}\" has an invalid value", self.option)
+	}
+}
+
+impl std::error::Error for InvalidOption {
+	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+		Some(self.source.deref())
+	}
+}
 
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -63,7 +83,13 @@ impl fmt::Display for Generator {
 
 macro_rules! parse_or_default {
 	($hash:expr, $key:literal, $default:expr) => {{
-		$hash.get($key).map(|s| s.parse()).transpose()?.unwrap_or($default)
+		$hash.get($key).map(|s| s.parse())
+			.transpose()
+			.map_err(|e| InvalidOption {
+				option: $key.to_string(),
+				source: Box::new(e)
+			})?
+			.unwrap_or($default)
 	}};
 }
 
@@ -75,6 +101,7 @@ fn parse_timespec(value: &str) -> Result<TimeSpec, ParseIntError> {
 			|v| (
 				match v.0 { "" => "0", s => s },
 				format!("{:0<9}", v.1)))
+		// `or` above ensures the Option is not None here
 		.unwrap();
 	Ok(TimeSpec::new(t.0.parse()?, t.1[..9].parse()?))
 }
@@ -82,7 +109,7 @@ fn parse_timespec(value: &str) -> Result<TimeSpec, ParseIntError> {
 
 fn parse_interval(
 	options: &HashMap<String, String>)
-	-> Result<Option<TimeSpec>, Box<dyn std::error::Error>>
+	-> Result<Option<TimeSpec>, InvalidOption>
 {
 	let params = ["interval", "msec", "usec", "nsec"];
 	let m: Vec<&str> = params.iter()
@@ -93,13 +120,20 @@ fn parse_interval(
 		return Ok(None);
 	}
 	if m.len() > 1 {
-		return Err(format!("only one of {:?} may be specified", params).into());
+		return Err(InvalidOption{
+			option: m[1].to_string(),
+			source: format!("only one of {:?} may be specified", params).into()
+		});
 	}
 	let t: TimeSpec = match m[0] {
 		"msec" => Duration::from_millis(parse_or_default!(options, "msec", 0)).into(),
 		"usec" => Duration::from_micros(parse_or_default!(options, "usec", 0)).into(),
 		"nsec" => Duration::from_nanos(parse_or_default!(options, "nsec", 0)).into(),
-		_ => parse_timespec(options.get("interval").unwrap())?,
+		_ => parse_timespec(options.get("interval").unwrap())
+			.map_err(|e| InvalidOption {
+				option: "interval".to_string(),
+				source: Box::new(e)
+			})?,
 	};
 	Ok(Some(t))
 }
