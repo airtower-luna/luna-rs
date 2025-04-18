@@ -180,7 +180,7 @@ fn generator_vary_size(
 fn generator_py(
 	generator_code: &CStr, target: mpsc::Sender<PacketData>,
 	options: HashMap<String, String>)
-	-> Result<(), Box<dyn std::error::Error>>
+	-> Result<(), pyo3::PyErr>
 {
     use pyo3::exceptions::PyConnectionAbortedError;
     use pyo3::prelude::*;
@@ -208,8 +208,17 @@ fn generator_py(
 						"client thread closed connection"))
 			})?;
 		PyResult::Ok(())
-	}).inspect_err(|e| eprintln!("Generator module failed: {}", e)).unwrap();
-	Ok(())
+	}).inspect_err(
+		|e| Python::with_gil(|py| {
+			eprintln!(
+				"Generator module failed: {}{}",
+				e.traceback(py)
+					.map(|t| t.format()
+						 .expect("formatting Python traceback failed"))
+					.unwrap_or(String::new()),
+				e,
+			);
+		}))
 }
 
 
