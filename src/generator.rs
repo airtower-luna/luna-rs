@@ -1,6 +1,7 @@
 use std::{
 	collections::HashMap,
 	fmt::{self, Debug},
+	num::ParseIntError,
 	str::FromStr,
 	sync::mpsc,
 	thread,
@@ -76,14 +77,26 @@ fn get_num<T: FromStr>(
 }
 
 
+fn parse_timespec(value: &str) -> Result<TimeSpec, ParseIntError> {
+	let t = value.split_once('.')
+		.or(Some((value, "")))
+		.map(
+			|v| (
+				match v.0 { "" => "0", s => s },
+				format!("{:0<9}", v.1)))
+		.unwrap();
+	Ok(TimeSpec::new(t.0.parse()?, t.1[..9].parse()?))
+}
+
+
 fn generator(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
 {
 	let count = get_num(&options, "count", 10);
 	let size = get_num(&options, "size", MIN_SIZE);
-	let delay = TimeSpec::new(
-		get_num(&options, "sec", 0),
-		get_num(&options, "nsec", 500_000_000));
+	let delay = parse_timespec(
+		options.get("interval").unwrap_or(&"0.5".to_string()))
+		.unwrap_or_else(|_| TimeSpec::new(0, 500_000_000));
 	for _ in 0..count {
 		target.send(PacketData { delay, size }).unwrap();
 	}
@@ -178,13 +191,12 @@ mod tests {
 	fn default() -> Result<(), Box<dyn std::error::Error>> {
 		let count = 20;
 		let size = 32;
-		let nsec = 200_000_000;
 		let mut options = HashMap::with_capacity(1);
 		options.insert("count".to_string(), format!("{count}"));
 		options.insert("size".to_string(), format!("{size}"));
-		options.insert("nsec".to_string(), format!("{nsec}"));
+		options.insert("interval".to_string(), "0.2".to_string());
 		let receiver = Generator::Default.run(options)?;
-		let step = TimeSpec::new(0, nsec);
+		let step = TimeSpec::new(0, 200_000_000);
 		for i in 0..count {
 			let pkt = receiver.recv()?;
 			println!("{i} {pkt:?}");
@@ -234,5 +246,18 @@ mod tests {
 		}
 		assert_eq!(receiver.recv(), Err(RecvError));
 		Ok(())
+	}
+
+	#[test]
+	fn timespec() {
+		assert_eq!(parse_timespec(".002"), Ok(TimeSpec::new(0, 2_000_000)));
+		assert_eq!(parse_timespec("1.02"), Ok(TimeSpec::new(1, 20_000_000)));
+		assert_eq!(parse_timespec("1"), Ok(TimeSpec::new(1, 0)));
+		assert_eq!(parse_timespec("0.000000006"), Ok(TimeSpec::new(0, 6)));
+		// empty string is equivalent to all zeroes
+		assert_eq!(parse_timespec(""), Ok(TimeSpec::new(0, 0)));
+		// decimal places beyond the 9th are cut off
+		assert_eq!(parse_timespec("1.0000000006"), Ok(TimeSpec::new(1, 0)));
+		assert!(parse_timespec("ab.0").is_err());
 	}
 }
