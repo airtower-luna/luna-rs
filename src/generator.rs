@@ -30,7 +30,7 @@ pub enum Generator {
 	/// "generate()" function to produce packet data
 	#[cfg(feature = "python")]
 	#[value(skip)]
-	Py(CString),
+	Py{code: CString, file: CString},
 }
 
 impl Generator {
@@ -46,7 +46,7 @@ impl Generator {
 			Generator::Rapid => t.spawn(move || generator_rapid(sender, options).unwrap())?,
 			Generator::Vary => t.spawn(move || generator_vary_size(sender, options).unwrap())?,
 			#[cfg(feature = "python")]
-			Generator::Py(code) => t.spawn(move || generator_py(&code, sender, options).unwrap())?,
+			Generator::Py{code, file} => t.spawn(move || generator_py(&code, &file, sender, options).unwrap())?,
 		};
 		Ok(receiver)
 	}
@@ -61,7 +61,7 @@ impl fmt::Display for Generator {
 			Generator::Rapid => write!(f, "Generator::Rapid"),
 			Generator::Vary => write!(f, "Generator::Vary"),
 			#[cfg(feature = "python")]
-			Generator::Py(_) => write!(f, "Generator::Py(...)"),
+			Generator::Py{code:_, file} => write!(f, "Generator::Py({:?})", file),
 		}
 	}
 }
@@ -178,8 +178,8 @@ fn generator_vary_size(
 
 #[cfg(feature = "python")]
 fn generator_py(
-	generator_code: &CStr, target: mpsc::Sender<PacketData>,
-	options: HashMap<String, String>)
+	generator_code: &CStr, generator_file: &CStr,
+	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
 	-> Result<(), pyo3::PyErr>
 {
     use pyo3::exceptions::PyConnectionAbortedError;
@@ -191,7 +191,7 @@ fn generator_py(
 		let generator = PyModule::from_code(
 			py,
 			generator_code,
-			c_str!("generator.py"),
+			generator_file,
 			c_str!("generator"),
 		)?;
 		generator.setattr("MIN_SIZE", MIN_SIZE)?;
@@ -267,6 +267,10 @@ mod tests {
 	#[cfg(feature = "python")]
 	#[test]
 	fn py_gen() -> Result<(), Box<dyn std::error::Error>> {
+		let file = CString::new(concat!(
+			env!("CARGO_MANIFEST_DIR"),
+			"/examples/generator_random.py"
+		))?;
 		let code = CString::new(include_str!(concat!(
 			env!("CARGO_MANIFEST_DIR"),
 			"/examples/generator_random.py"
@@ -274,7 +278,7 @@ mod tests {
 		let mut options = HashMap::new();
 		let count = 256;
 		options.insert(String::from("count"), format!("{count}"));
-		let receiver = Generator::Py(code).run(options)?;
+		let receiver = Generator::Py{code, file}.run(options)?;
 		let step = TimeSpec::new(0, 1_000_000);
 		for i in 0..count {
 			let pkt = receiver.recv()?;

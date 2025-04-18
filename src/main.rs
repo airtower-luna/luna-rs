@@ -89,9 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		} => {
 			#[cfg(feature = "python")]
 			let generator = py_generator
-				.map(|p| fs::read_to_string(p).unwrap())
-				.map(|s| CString::new(s).unwrap())
-				.map(|s| Generator::Py(s))
+				.as_ref()
+				.map(|p| (fs::read_to_string(p).unwrap(), p.to_str().unwrap()))
+				.map(|s| (CString::new(s.0).unwrap(), CString::new(s.1).unwrap()))
+				.map(|s| Generator::Py{code: s.0, file: s.1})
 				.or(Some(generator));
 			#[cfg(not(feature = "python"))]
 			let generator = Some(generator);
