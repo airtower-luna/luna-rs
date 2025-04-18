@@ -2,9 +2,9 @@ use std::{
 	collections::HashMap,
 	fmt::{self, Debug},
 	num::ParseIntError,
-	str::FromStr,
 	sync::mpsc,
 	thread,
+	time::Duration,
 };
 #[cfg(feature = "python")]
 use std::ffi::{CStr, CString};
@@ -41,12 +41,12 @@ impl Generator {
 		let (sender, receiver) = mpsc::channel::<PacketData>();
 		let t = thread::Builder::new().name(format!("{}", self));
 		match self {
-			Generator::Default => t.spawn(move || generator(sender, options))?,
-			Generator::Large => t.spawn(move || generator_large(sender, options))?,
-			Generator::Rapid => t.spawn(move || generator_rapid(sender, options))?,
-			Generator::Vary => t.spawn(move || generator_vary_size(sender, options))?,
+			Generator::Default => t.spawn(move || generator(sender, options).unwrap())?,
+			Generator::Large => t.spawn(move || generator_large(sender, options).unwrap())?,
+			Generator::Rapid => t.spawn(move || generator_rapid(sender, options).unwrap())?,
+			Generator::Vary => t.spawn(move || generator_vary_size(sender, options).unwrap())?,
 			#[cfg(feature = "python")]
-			Generator::Py(code) => t.spawn(move || generator_py(&code, sender, options))?,
+			Generator::Py(code) => t.spawn(move || generator_py(&code, sender, options).unwrap())?,
 		};
 		Ok(receiver)
 	}
@@ -67,13 +67,10 @@ impl fmt::Display for Generator {
 }
 
 
-fn get_num<T: FromStr>(
-	options: &HashMap<String, String>, name: &str, default: T)
-	-> T where <T as FromStr>::Err: Debug
-{
-	options.get(name)
-		.map(|s| s.parse::<T>().expect(&format!("invalid '{}' value", name)))
-		.unwrap_or(default)
+macro_rules! parse_or_default {
+	($hash:expr, $key:literal, $default:expr) => {{
+		$hash.get($key).map(|s| s.parse()).transpose()?.unwrap_or($default)
+	}};
 }
 
 
@@ -89,46 +86,78 @@ fn parse_timespec(value: &str) -> Result<TimeSpec, ParseIntError> {
 }
 
 
+fn parse_interval(
+	options: &HashMap<String, String>)
+	-> Result<Option<TimeSpec>, Box<dyn std::error::Error>>
+{
+	let params = ["interval", "msec", "usec", "nsec"];
+	let m: Vec<&str> = params.iter()
+		.map(|p| *p)
+		.filter(|p| options.contains_key(*p))
+		.collect();
+	if m.len() == 0 {
+		return Ok(None);
+	}
+	if m.len() > 1 {
+		return Err(format!("only one of {:?} may be specified", params).into());
+	}
+	let t: TimeSpec = match m[0] {
+		"msec" => Duration::from_millis(parse_or_default!(options, "msec", 0)).into(),
+		"usec" => Duration::from_micros(parse_or_default!(options, "usec", 0)).into(),
+		"nsec" => Duration::from_nanos(parse_or_default!(options, "nsec", 0)).into(),
+		_ => parse_timespec(options.get("interval").unwrap())?,
+	};
+	Ok(Some(t))
+}
+
+
 fn generator(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
+	-> Result<(), Box<dyn std::error::Error>>
 {
-	let count = get_num(&options, "count", 10);
-	let size = get_num(&options, "size", MIN_SIZE);
-	let delay = parse_timespec(
-		options.get("interval").unwrap_or(&"0.5".to_string()))
-		.unwrap_or_else(|_| TimeSpec::new(0, 500_000_000));
+	let count = parse_or_default!(options, "count", 10);
+	let size = parse_or_default!(options, "size", MIN_SIZE);
+	let delay = parse_interval(&options)?
+		.unwrap_or(TimeSpec::new(0, 500_000_000));
 	for _ in 0..count {
 		target.send(PacketData { delay, size }).unwrap();
 	}
+	Ok(())
 }
 
 
 fn generator_rapid(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
+	-> Result<(), Box<dyn std::error::Error>>
 {
-	let count = get_num(&options, "count", 200);
-	let step = TimeSpec::new(0, get_num(&options, "nsec", 30_000));
+	let count = parse_or_default!(options, "count", 200);
+	let delay = parse_interval(&options)?
+		.unwrap_or(TimeSpec::new(0, 30_000));
 	for _ in 0..count {
-		target.send(PacketData { delay: step, size: MIN_SIZE }).unwrap();
+		target.send(PacketData { delay, size: MIN_SIZE }).unwrap();
 	}
+	Ok(())
 }
 
 
 fn generator_large(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
+	-> Result<(), Box<dyn std::error::Error>>
 {
-	let count = get_num(&options, "count", 10);
+	let count = parse_or_default!(options, "count", 10);
 	let step = TimeSpec::new(0, 1_000_000);
 	for _ in 0..count {
 		target.send(PacketData { delay: step, size: 1500 }).unwrap();
 	}
+	Ok(())
 }
 
 
 fn generator_vary_size(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
+	-> Result<(), Box<dyn std::error::Error>>
 {
-	let count = get_num(&options, "count", 20);
+	let count = parse_or_default!(options, "count", 20);
 	let step = TimeSpec::new(0, 1_000_000);
 	let max_size = 1500;
 	let mut s = MIN_SIZE;
@@ -143,6 +172,7 @@ fn generator_vary_size(
 			grow = s <= MIN_SIZE;
 		}
 	}
+	Ok(())
 }
 
 
@@ -150,6 +180,7 @@ fn generator_vary_size(
 fn generator_py(
 	generator_code: &CStr, target: mpsc::Sender<PacketData>,
 	options: HashMap<String, String>)
+	-> Result<(), Box<dyn std::error::Error>>
 {
     use pyo3::exceptions::PyConnectionAbortedError;
     use pyo3::prelude::*;
@@ -178,13 +209,12 @@ fn generator_py(
 			})?;
 		PyResult::Ok(())
 	}).inspect_err(|e| eprintln!("Generator module failed: {}", e)).unwrap();
+	Ok(())
 }
 
 
 #[cfg(test)]
 mod tests {
-	use mpsc::RecvError;
-
 	use super::*;
 
 	#[test]
@@ -203,7 +233,7 @@ mod tests {
 			assert_eq!(pkt.delay, step);
 			assert_eq!(pkt.size, size);
 		}
-		assert_eq!(receiver.recv(), Err(RecvError));
+		assert_eq!(receiver.recv(), Err(mpsc::RecvError));
 		Ok(())
 	}
 
@@ -221,7 +251,7 @@ mod tests {
 			assert_eq!(pkt.delay, step);
 			assert_eq!(pkt.size, size[i]);
 		}
-		assert_eq!(receiver.recv(), Err(RecvError));
+		assert_eq!(receiver.recv(), Err(mpsc::RecvError));
 		Ok(())
 	}
 
@@ -244,7 +274,7 @@ mod tests {
 			assert!(pkt.size >= MIN_SIZE);
 			assert!(pkt.size <= 512);
 		}
-		assert_eq!(receiver.recv(), Err(RecvError));
+		assert_eq!(receiver.recv(), Err(mpsc::RecvError));
 		Ok(())
 	}
 
@@ -259,5 +289,20 @@ mod tests {
 		// decimal places beyond the 9th are cut off
 		assert_eq!(parse_timespec("1.0000000006"), Ok(TimeSpec::new(1, 0)));
 		assert!(parse_timespec("ab.0").is_err());
+	}
+
+	#[test]
+	fn time_definition() -> Result<(), Box<dyn std::error::Error>> {
+		let mut go = HashMap::new();
+		assert_eq!(parse_interval(&go)?, None);
+		go.insert("msec".to_string(), "1".to_string());
+		go.insert("usec".to_string(), "1000".to_string());
+		assert!(parse_interval(&go).is_err());
+		go.remove("msec");
+		assert_eq!(parse_interval(&go)?, Some(TimeSpec::new(0, 1_000_000)));
+		go.clear();
+		go.insert("interval".to_string(), "0.001".to_string());
+		assert_eq!(parse_interval(&go)?, Some(TimeSpec::new(0, 1_000_000)));
+		Ok(())
 	}
 }
