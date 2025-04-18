@@ -20,10 +20,6 @@ pub enum Generator {
 	/// send fixed size packet with a fixed interval, defaults to
 	/// minimum size and 0.5s
 	Default,
-	/// send a minimum size packet every 30µs (interval configurable)
-	Rapid,
-	/// send a 1500 byte packet every 1ms
-	Large,
 	/// change size between minimum and 1500, send every 1ms
 	Vary,
 	/// load the given string as a Python module and run its
@@ -42,8 +38,6 @@ impl Generator {
 		let t = thread::Builder::new().name(format!("{}", self));
 		match self {
 			Generator::Default => t.spawn(move || generator(sender, options).unwrap())?,
-			Generator::Large => t.spawn(move || generator_large(sender, options).unwrap())?,
-			Generator::Rapid => t.spawn(move || generator_rapid(sender, options).unwrap())?,
 			Generator::Vary => t.spawn(move || generator_vary_size(sender, options).unwrap())?,
 			#[cfg(feature = "python")]
 			Generator::Py{code, file} => t.spawn(move || generator_py(&code, &file, sender, options).unwrap())?,
@@ -57,8 +51,6 @@ impl fmt::Display for Generator {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Generator::Default => write!(f, "Generator::Default"),
-			Generator::Large => write!(f, "Generator::Large"),
-			Generator::Rapid => write!(f, "Generator::Rapid"),
 			Generator::Vary => write!(f, "Generator::Vary"),
 			#[cfg(feature = "python")]
 			Generator::Py{code:_, file} => write!(f, "Generator::Py({:?})", file),
@@ -121,33 +113,6 @@ fn generator(
 		.unwrap_or(TimeSpec::new(0, 500_000_000));
 	for _ in 0..count {
 		target.send(PacketData { delay, size }).unwrap();
-	}
-	Ok(())
-}
-
-
-fn generator_rapid(
-	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
-	-> Result<(), Box<dyn std::error::Error>>
-{
-	let count = parse_or_default!(options, "count", 200);
-	let delay = parse_interval(&options)?
-		.unwrap_or(TimeSpec::new(0, 30_000));
-	for _ in 0..count {
-		target.send(PacketData { delay, size: MIN_SIZE }).unwrap();
-	}
-	Ok(())
-}
-
-
-fn generator_large(
-	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
-	-> Result<(), Box<dyn std::error::Error>>
-{
-	let count = parse_or_default!(options, "count", 10);
-	let step = TimeSpec::new(0, 1_000_000);
-	for _ in 0..count {
-		target.send(PacketData { delay: step, size: 1500 }).unwrap();
 	}
 	Ok(())
 }

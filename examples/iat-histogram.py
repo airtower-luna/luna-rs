@@ -10,7 +10,7 @@ commands to create such a file:
 
 luna-rs server >test.tsv &
 server_pid="$!"
-luna-rs client -e -g rapid
+luna-rs client -e -O count=200 -O usec=30
 kill $server_pid
 wait
 

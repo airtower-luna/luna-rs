@@ -173,8 +173,11 @@ mod tests {
 		let s = format!("{}", bind_addr);
 		let sh = thread::spawn(move || srv.run().unwrap());
 
-		let go = HashMap::new();
-		let receiver = Generator::Rapid.run(go)?;
+		let count = 200;
+		let mut go: HashMap<String, String> = HashMap::new();
+		go.insert("usec".to_string(), "30".to_string());
+		go.insert("count".to_string(), format!("{count}"));
+		let receiver = Generator::Default.run(go)?;
 		let server_addr: std::net::SocketAddr = s.to_socket_addrs()
 			.expect("cannot parse server address")
 			.next().expect("no address");
@@ -187,9 +190,9 @@ mod tests {
 			).map_err(|e| e.to_string())
 		});
 
-		// check that the server sees all ten packets
+		// check that the server sees all packets
 		let slh = thread::spawn(move || {
-			for i in 0..200 {
+			for i in 0..count {
 				let r = server_logger.recv().unwrap();
 				assert_eq!(
 					r.source.as_sockaddr_in6().unwrap().ip(),
@@ -199,8 +202,8 @@ mod tests {
 			}
 		});
 
-		// check that the client sees all ten echoes
-		for i in 0..200 {
+		// check that the client sees all echoes
+		for i in 0..count {
 			let r = client_logger.recv()?;
 			assert_eq!(r.source, bind_addr);
 			assert_eq!(r.size, MIN_SIZE);
