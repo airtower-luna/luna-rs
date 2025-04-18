@@ -1,6 +1,7 @@
 use std::{
 	collections::HashMap,
-	fmt,
+	fmt::{self, Debug},
+	str::FromStr,
 	sync::mpsc,
 	thread,
 };
@@ -15,9 +16,10 @@ use crate::{PacketData, MIN_SIZE};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Generator {
-	/// send a minimum size packet every 0.5s
+	/// send fixed size packet with a fixed interval, defaults to
+	/// minimum size and 0.5s
 	Default,
-	/// send a minimum size packet every 30µs
+	/// send a minimum size packet every 30µs (interval configurable)
 	Rapid,
 	/// send a 1500 byte packet every 1ms
 	Large,
@@ -64,9 +66,12 @@ impl fmt::Display for Generator {
 }
 
 
-fn get_count(options: &HashMap<String, String>, default: usize) -> usize {
-	options.get("count")
-		.map(|s| s.parse().expect("invalid count value"))
+fn get_num<T: FromStr>(
+	options: &HashMap<String, String>, name: &str, default: T)
+	-> T where <T as FromStr>::Err: Debug
+{
+	options.get(name)
+		.map(|s| s.parse::<T>().expect(&format!("invalid '{}' value", name)))
 		.unwrap_or(default)
 }
 
@@ -74,10 +79,13 @@ fn get_count(options: &HashMap<String, String>, default: usize) -> usize {
 fn generator(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
 {
-	let count = get_count(&options, 10);
-	let step = TimeSpec::new(0, 500_000_000);
+	let count = get_num(&options, "count", 10);
+	let size = get_num(&options, "size", MIN_SIZE);
+	let delay = TimeSpec::new(
+		get_num(&options, "sec", 0),
+		get_num(&options, "nsec", 500_000_000));
 	for _ in 0..count {
-		target.send(PacketData { delay: step, size: MIN_SIZE }).unwrap();
+		target.send(PacketData { delay, size }).unwrap();
 	}
 }
 
@@ -85,11 +93,8 @@ fn generator(
 fn generator_rapid(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
 {
-	let count = get_count(&options, 200);
-	let nsec = options.get("nsec")
-		.map(|s| s.parse().expect("invalid nsec value"))
-		.unwrap_or(30_000);
-	let step = TimeSpec::new(0, nsec);
+	let count = get_num(&options, "count", 200);
+	let step = TimeSpec::new(0, get_num(&options, "nsec", 30_000));
 	for _ in 0..count {
 		target.send(PacketData { delay: step, size: MIN_SIZE }).unwrap();
 	}
@@ -99,7 +104,7 @@ fn generator_rapid(
 fn generator_large(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
 {
-	let count = get_count(&options, 10);
+	let count = get_num(&options, "count", 10);
 	let step = TimeSpec::new(0, 1_000_000);
 	for _ in 0..count {
 		target.send(PacketData { delay: step, size: 1500 }).unwrap();
@@ -110,7 +115,7 @@ fn generator_large(
 fn generator_vary_size(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
 {
-	let count = get_count(&options, 20);
+	let count = get_num(&options, "count", 20);
 	let step = TimeSpec::new(0, 1_000_000);
 	let max_size = 1500;
 	let mut s = MIN_SIZE;
@@ -171,15 +176,20 @@ mod tests {
 
 	#[test]
 	fn default() -> Result<(), Box<dyn std::error::Error>> {
+		let count = 20;
+		let size = 32;
+		let nsec = 200_000_000;
 		let mut options = HashMap::with_capacity(1);
-		options.insert(String::from("count"), String::from("20"));
+		options.insert("count".to_string(), format!("{count}"));
+		options.insert("size".to_string(), format!("{size}"));
+		options.insert("nsec".to_string(), format!("{nsec}"));
 		let receiver = Generator::Default.run(options)?;
-		let step = TimeSpec::new(0, 500_000_000);
-		for i in 0..20 {
+		let step = TimeSpec::new(0, nsec);
+		for i in 0..count {
 			let pkt = receiver.recv()?;
 			println!("{i} {pkt:?}");
 			assert_eq!(pkt.delay, step);
-			assert_eq!(pkt.size, MIN_SIZE);
+			assert_eq!(pkt.size, size);
 		}
 		assert_eq!(receiver.recv(), Err(RecvError));
 		Ok(())
