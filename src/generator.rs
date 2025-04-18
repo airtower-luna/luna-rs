@@ -1,5 +1,9 @@
-use std::{collections::HashMap, sync::mpsc};
-use std::thread;
+use std::{
+	collections::HashMap,
+	fmt,
+	sync::mpsc,
+	thread,
+};
 #[cfg(feature = "python")]
 use std::ffi::{CStr, CString};
 
@@ -28,18 +32,34 @@ pub enum Generator {
 
 impl Generator {
 	pub fn run(
-		self, options: HashMap<String, String>) -> mpsc::Receiver<PacketData>
+		self, options: HashMap<String, String>)
+		-> Result<mpsc::Receiver<PacketData>, std::io::Error>
 	{
 		let (sender, receiver) = mpsc::channel::<PacketData>();
+		let t = thread::Builder::new().name(format!("{}", self));
 		match self {
-			Generator::Default => thread::spawn(move || generator(sender, options)),
-			Generator::Large => thread::spawn(move || generator_large(sender, options)),
-			Generator::Rapid => thread::spawn(move || generator_rapid(sender, options)),
-			Generator::Vary => thread::spawn(move || generator_vary_size(sender, options)),
+			Generator::Default => t.spawn(move || generator(sender, options))?,
+			Generator::Large => t.spawn(move || generator_large(sender, options))?,
+			Generator::Rapid => t.spawn(move || generator_rapid(sender, options))?,
+			Generator::Vary => t.spawn(move || generator_vary_size(sender, options))?,
 			#[cfg(feature = "python")]
-			Generator::Py(code) => thread::spawn(move || generator_py(&code, sender, options)),
+			Generator::Py(code) => t.spawn(move || generator_py(&code, sender, options))?,
 		};
-		receiver
+		Ok(receiver)
+	}
+}
+
+
+impl fmt::Display for Generator {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Generator::Default => write!(f, "Generator::Default"),
+			Generator::Large => write!(f, "Generator::Large"),
+			Generator::Rapid => write!(f, "Generator::Rapid"),
+			Generator::Vary => write!(f, "Generator::Vary"),
+			#[cfg(feature = "python")]
+			Generator::Py(_) => write!(f, "Generator::Py(...)"),
+		}
 	}
 }
 
@@ -155,10 +175,10 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn default() -> Result<(), RecvError> {
+	fn default() -> Result<(), Box<dyn std::error::Error>> {
 		let mut options = HashMap::with_capacity(1);
 		options.insert(String::from("count"), String::from("20"));
-		let receiver = Generator::Default.run(options);
+		let receiver = Generator::Default.run(options)?;
 		let step = TimeSpec::new(0, 500_000_000);
 		for i in 0..20 {
 			let pkt = receiver.recv()?;
@@ -171,9 +191,9 @@ mod tests {
 	}
 
 	#[test]
-	fn vary() -> Result<(), RecvError> {
+	fn vary() -> Result<(), Box<dyn std::error::Error>> {
 		let options = HashMap::new();
-		let receiver = Generator::Vary.run(options);
+		let receiver = Generator::Vary.run(options)?;
 		let step = TimeSpec::new(0, 1_000_000);
 		let size = vec![
 			21, 42, 84, 168, 336, 672, 1344, 1500, 1344, 672,
@@ -198,7 +218,7 @@ mod tests {
 		let mut options = HashMap::new();
 		let count = 256;
 		options.insert(String::from("count"), format!("{count}"));
-		let receiver = Generator::Py(code).run(options);
+		let receiver = Generator::Py(code).run(options)?;
 		let step = TimeSpec::new(0, 1_000_000);
 		for i in 0..count {
 			let pkt = receiver.recv()?;

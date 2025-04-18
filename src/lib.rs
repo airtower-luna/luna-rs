@@ -174,7 +174,7 @@ mod tests {
 		let sh = thread::spawn(move || srv.run().unwrap());
 
 		let go = HashMap::new();
-		let receiver = Generator::Rapid.run(go);
+		let receiver = Generator::Rapid.run(go)?;
 		let server_addr: std::net::SocketAddr = s.to_socket_addrs()
 			.expect("cannot parse server address")
 			.next().expect("no address");

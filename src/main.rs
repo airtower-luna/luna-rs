@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				}
 				go
 			};
-			let receiver = generator.unwrap().run(go);
+			let receiver = generator.unwrap().run(go)?;
 			let server_addr: SocketAddr = server
 				.to_socket_addrs()
 				.expect("cannot parse server address")
