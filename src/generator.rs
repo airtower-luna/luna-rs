@@ -32,15 +32,17 @@ pub enum Generator {
 impl Generator {
 	pub fn run(
 		self, options: HashMap<String, String>)
-		-> Result<mpsc::Receiver<PacketData>, std::io::Error>
+		-> Result<mpsc::Receiver<PacketData>, Box<dyn std::error::Error>>
 	{
 		let (sender, receiver) = mpsc::channel::<PacketData>();
-		let t = thread::Builder::new().name(format!("{}", self));
 		match self {
-			Generator::Default => t.spawn(move || generator(sender, options).unwrap())?,
-			Generator::Vary => t.spawn(move || generator_vary_size(sender, options).unwrap())?,
+			Generator::Default => generator(sender, options)?,
+			Generator::Vary => generator_vary_size(sender, options)?,
 			#[cfg(feature = "python")]
-			Generator::Py{code, file} => t.spawn(move || generator_py(&code, &file, sender, options).unwrap())?,
+			Generator::Py{code, file} =>
+				thread::Builder::new()
+					.name(format!("python generator ({:?})", file))
+					.spawn(move || generator_py(&code, &file, sender, options).unwrap())?,
 		};
 		Ok(receiver)
 	}
@@ -105,39 +107,47 @@ fn parse_interval(
 
 fn generator(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
-	-> Result<(), Box<dyn std::error::Error>>
+	-> Result<thread::JoinHandle<()>, Box<dyn std::error::Error>>
 {
 	let count = parse_or_default!(options, "count", 10);
 	let size = parse_or_default!(options, "size", MIN_SIZE);
 	let delay = parse_interval(&options)?
 		.unwrap_or(TimeSpec::new(0, 500_000_000));
-	for _ in 0..count {
-		target.send(PacketData { delay, size }).unwrap();
-	}
-	Ok(())
+	Ok(thread::Builder::new()
+		.name("default generator".to_string())
+		.spawn(move || {
+			for _ in 0..count {
+				target.send(PacketData { delay, size }).unwrap();
+			}
+		})?)
 }
 
 
 fn generator_vary_size(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
-	-> Result<(), Box<dyn std::error::Error>>
+	-> Result<thread::JoinHandle<()>, Box<dyn std::error::Error>>
 {
 	let count = parse_or_default!(options, "count", 20);
 	let step = TimeSpec::new(0, 1_000_000);
 	let max_size = 1500;
-	let mut s = MIN_SIZE;
-	let mut grow = true;
-	for _ in 0..count {
-		target.send(PacketData { delay: step, size: max_size.min(s) }).unwrap();
-		if grow {
-			s *= 2;
-			grow = s < max_size;
-		} else {
-			s = MIN_SIZE.max(s / 2);
-			grow = s <= MIN_SIZE;
-		}
-	}
-	Ok(())
+	Ok(thread::Builder::new()
+		.name("vary generator".to_string())
+		.spawn(move || {
+			let mut s = MIN_SIZE;
+			let mut grow = true;
+			for _ in 0..count {
+				target.send(
+					PacketData { delay: step, size: max_size.min(s) }
+				).unwrap();
+				if grow {
+					s *= 2;
+					grow = s < max_size;
+				} else {
+					s = MIN_SIZE.max(s / 2);
+					grow = s <= MIN_SIZE;
+				}
+			}
+		})?)
 }
 
 
