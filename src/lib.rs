@@ -148,10 +148,7 @@ impl ReceivedPacket {
 #[cfg(test)]
 mod tests {
 	use std::{
-		net::{Ipv6Addr, SocketAddrV6, ToSocketAddrs},
-		sync::mpsc::{self, RecvError},
-		thread,
-		time::Duration
+		collections::HashMap, net::{Ipv6Addr, SocketAddrV6, ToSocketAddrs}, sync::mpsc::{self, RecvError}, thread, time::Duration
 	};
 
 	use generator::Generator;
@@ -176,7 +173,8 @@ mod tests {
 		let s = format!("{}", bind_addr);
 		let sh = thread::spawn(move || srv.run().unwrap());
 
-		let receiver = Generator::Rapid.run();
+		let go = HashMap::new();
+		let receiver = Generator::Rapid.run(go);
 		let server_addr: std::net::SocketAddr = s.to_socket_addrs()
 			.expect("cannot parse server address")
 			.next().expect("no address");

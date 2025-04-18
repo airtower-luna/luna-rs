@@ -2,7 +2,10 @@ use luna_rs::{client, generator::Generator, server};
 use clap::{Parser, Subcommand};
 use nix::sys::{signal, socket::SockaddrStorage};
 use std::{
-	net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs}, sync::OnceLock, time::Duration
+	collections::HashMap,
+	net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
+	sync::OnceLock,
+	time::Duration,
 };
 #[cfg(feature = "python")]
 use std::{ffi::CString, fs, path::PathBuf};
@@ -36,6 +39,17 @@ enum Commands {
 		#[cfg(feature = "python")]
 		#[arg(long, value_name = "MODULE_PY", group = "generator_choice")]
 		py_generator: Option<PathBuf>,
+		/// option to pass to the generator in name=value format, may
+		/// be specificed multiple times
+		#[arg(
+			short = 'O',
+			long,
+			value_name = "NAME=VALUE",
+			value_parser = |s: &str| s.split_once('=')
+				.ok_or("invaild option, no '=' to split at")
+				.map(|s| (String::from(s.0), String::from(s.1)))
+		)]
+		generator_option: Vec<(String, String)>,
 	},
 	Server {
 		/// port to listen on
@@ -71,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			generator,
 			#[cfg(feature = "python")]
 			py_generator,
+			generator_option,
 		} => {
 			#[cfg(feature = "python")]
 			let generator = py_generator
@@ -80,7 +95,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				.or(Some(generator));
 			#[cfg(not(feature = "python"))]
 			let generator = Some(generator);
-			let receiver = generator.unwrap().run();
+			let go = {
+				let mut go = HashMap::with_capacity(generator_option.len());
+				for (name, value) in generator_option {
+					go.insert(name, value);
+				}
+				go
+			};
+			let receiver = generator.unwrap().run(go);
 			let server_addr: SocketAddr = server
 				.to_socket_addrs()
 				.expect("cannot parse server address")

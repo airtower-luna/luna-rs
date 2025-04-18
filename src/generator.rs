@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::{collections::HashMap, sync::mpsc};
 use std::thread;
 #[cfg(feature = "python")]
 use std::ffi::{CStr, CString};
@@ -27,51 +27,72 @@ pub enum Generator {
 }
 
 impl Generator {
-	pub fn run(self) -> mpsc::Receiver<PacketData> {
+	pub fn run(
+		self, options: HashMap<String, String>) -> mpsc::Receiver<PacketData>
+	{
 		let (sender, receiver) = mpsc::channel::<PacketData>();
 		match self {
-			Generator::Default => thread::spawn(move || generator(sender)),
-			Generator::Large => thread::spawn(move || generator_large(sender)),
-			Generator::Rapid => thread::spawn(move || generator_rapid(sender)),
-			Generator::Vary => thread::spawn(move || generator_vary_size(sender)),
+			Generator::Default => thread::spawn(move || generator(sender, options)),
+			Generator::Large => thread::spawn(move || generator_large(sender, options)),
+			Generator::Rapid => thread::spawn(move || generator_rapid(sender, options)),
+			Generator::Vary => thread::spawn(move || generator_vary_size(sender, options)),
 			#[cfg(feature = "python")]
-			Generator::Py(code) => thread::spawn(move || generator_py(&code, sender)),
+			Generator::Py(code) => thread::spawn(move || generator_py(&code, sender, options)),
 		};
 		receiver
 	}
 }
 
 
-fn generator(target: mpsc::Sender<PacketData>) {
+fn get_count(options: &HashMap<String, String>, default: usize) -> usize {
+	options.get("count")
+		.map(|s| s.parse().unwrap_or(default))
+		.unwrap_or(default)
+}
+
+
+fn generator(
+	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
+{
+	let count = get_count(&options, 10);
 	let step = TimeSpec::new(0, 500_000_000);
-	for _ in 0..10 {
+	for _ in 0..count {
 		target.send(PacketData { delay: step, size: MIN_SIZE }).unwrap();
 	}
 }
 
 
-fn generator_rapid(target: mpsc::Sender<PacketData>) {
+fn generator_rapid(
+	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
+{
+	let count = get_count(&options, 200);
 	let step = TimeSpec::new(0, 30_000);
-	for _ in 0..200 {
+	for _ in 0..count {
 		target.send(PacketData { delay: step, size: MIN_SIZE }).unwrap();
 	}
 }
 
 
-fn generator_large(target: mpsc::Sender<PacketData>) {
+fn generator_large(
+	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
+{
+	let count = get_count(&options, 10);
 	let step = TimeSpec::new(0, 1_000_000);
-	for _ in 0..10 {
+	for _ in 0..count {
 		target.send(PacketData { delay: step, size: 1500 }).unwrap();
 	}
 }
 
 
-fn generator_vary_size(target: mpsc::Sender<PacketData>) {
+fn generator_vary_size(
+	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
+{
+	let count = get_count(&options, 20);
 	let step = TimeSpec::new(0, 1_000_000);
 	let max_size = 1500;
 	let mut s = MIN_SIZE;
 	let mut grow = true;
-	for _ in 0..20 {
+	for _ in 0..count {
 		target.send(PacketData { delay: step, size: max_size.min(s) }).unwrap();
 		if grow {
 			s *= 2;
@@ -85,7 +106,10 @@ fn generator_vary_size(target: mpsc::Sender<PacketData>) {
 
 
 #[cfg(feature = "python")]
-fn generator_py(generator_code: &CStr, target: mpsc::Sender<PacketData>) {
+fn generator_py(
+	generator_code: &CStr, target: mpsc::Sender<PacketData>,
+	_options: HashMap<String, String>)
+{
     use pyo3::exceptions::PyConnectionAbortedError;
     use pyo3::prelude::*;
 	use pyo3::ffi::c_str;
@@ -124,9 +148,11 @@ mod tests {
 
 	#[test]
 	fn default() -> Result<(), RecvError> {
-		let receiver = Generator::Default.run();
+		let mut options = HashMap::with_capacity(1);
+		options.insert(String::from("count"), String::from("20"));
+		let receiver = Generator::Default.run(options);
 		let step = TimeSpec::new(0, 500_000_000);
-		for i in 0..10 {
+		for i in 0..20 {
 			let pkt = receiver.recv()?;
 			println!("{i} {pkt:?}");
 			assert_eq!(pkt.delay, step);
@@ -138,7 +164,8 @@ mod tests {
 
 	#[test]
 	fn vary() -> Result<(), RecvError> {
-		let receiver = Generator::Vary.run();
+		let options = HashMap::new();
+		let receiver = Generator::Vary.run(options);
 		let step = TimeSpec::new(0, 1_000_000);
 		let size = vec![
 			21, 42, 84, 168, 336, 672, 1344, 1500, 1344, 672,
@@ -160,7 +187,8 @@ mod tests {
 			env!("CARGO_MANIFEST_DIR"),
 			"/examples/generator_random.py"
 		)))?;
-		let receiver = Generator::Py(code).run();
+		let options = HashMap::new();
+		let receiver = Generator::Py(code).run(options);
 		let step = TimeSpec::new(0, 1_000_000);
 		for i in 0..200 {
 			let pkt = receiver.recv()?;
