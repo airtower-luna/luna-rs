@@ -5,7 +5,7 @@ generator modules work.
 
 Usage example:
 
-luna-rs client --py-generator examples/generator_datarate.py -e
+luna-rs client --py-generator examples/generator_datarate.py -e -O mbps=20
 
 """
 from collections.abc import Iterator
@@ -13,13 +13,14 @@ from collections.abc import Iterator
 NS_PER_S = 1_000_000_000
 
 
-def generate() -> Iterator[tuple[tuple[int, int], int]]:
-    # plus IPv6 and UDP headers this fills 1500 byte MTU
-    size = 1452
+def generate(options: dict[str, str]) \
+        -> Iterator[tuple[tuple[int, int], int]]:
+    # plus IPv6 and UDP headers the default fills 1500 byte MTU
+    size = int(options.get('size', '1452'))
     # desired measurement duration in seconds
-    duration = 10
+    duration = int(options.get('duration', '10'))
     # desired datarate in Mbit/s
-    mbps = 1.2
+    mbps = float(options.get('mbps', '1.2'))
     # packets per second for that datarate
     pps = mbps * 1e6 / 8 / size
     # inter send time in ns

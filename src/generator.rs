@@ -111,11 +111,12 @@ fn generator_vary_size(
 #[cfg(feature = "python")]
 fn generator_py(
 	generator_code: &CStr, target: mpsc::Sender<PacketData>,
-	_options: HashMap<String, String>)
+	options: HashMap<String, String>)
 {
     use pyo3::exceptions::PyConnectionAbortedError;
     use pyo3::prelude::*;
 	use pyo3::ffi::c_str;
+	use pyo3::types::PyDict;
 
 	pyo3::prepare_freethreaded_python();
 	Python::with_gil(|py| {
@@ -126,8 +127,12 @@ fn generator_py(
 			c_str!("generator"),
 		)?;
 		generator.setattr("MIN_SIZE", MIN_SIZE)?;
+		let pyoptions = PyDict::new(py);
+		for (key, value) in options.iter() {
+			pyoptions.set_item(key, value)?;
+		}
 		let method = generator.getattr("generate")?;
-		let i = method.call0()?;
+		let i = method.call1((pyoptions,))?;
 		i.try_iter()?
 			.map(|t|
 				 t.and_then(|x| x.extract::<((i64, i64), usize)>()))
@@ -190,10 +195,12 @@ mod tests {
 			env!("CARGO_MANIFEST_DIR"),
 			"/examples/generator_random.py"
 		)))?;
-		let options = HashMap::new();
+		let mut options = HashMap::new();
+		let count = 256;
+		options.insert(String::from("count"), format!("{count}"));
 		let receiver = Generator::Py(code).run(options);
 		let step = TimeSpec::new(0, 1_000_000);
-		for i in 0..200 {
+		for i in 0..count {
 			let pkt = receiver.recv()?;
 			println!("{i} {pkt:?}");
 			assert_eq!(pkt.delay, step);
