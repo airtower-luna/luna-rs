@@ -136,7 +136,6 @@ fn generator_py(
     use pyo3::exceptions::PyConnectionAbortedError;
     use pyo3::prelude::*;
 	use pyo3::ffi::c_str;
-	use pyo3::types::PyDict;
 
 	pyo3::prepare_freethreaded_python();
 	Python::with_gil(|py| {
@@ -147,12 +146,8 @@ fn generator_py(
 			c_str!("generator"),
 		)?;
 		generator.setattr("MIN_SIZE", MIN_SIZE)?;
-		let pyoptions = PyDict::new(py);
-		for (key, value) in options.iter() {
-			pyoptions.set_item(key, value)?;
-		}
 		let method = generator.getattr("generate")?;
-		let i = method.call1((pyoptions,))?;
+		let i = method.call1((options,))?;
 		i.try_iter()?
 			.map(|t|
 				 t.and_then(|x| x.extract::<((i64, i64), usize)>()))
