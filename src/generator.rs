@@ -46,7 +46,7 @@ impl Generator {
 
 fn get_count(options: &HashMap<String, String>, default: usize) -> usize {
 	options.get("count")
-		.map(|s| s.parse().unwrap_or(default))
+		.map(|s| s.parse().expect("invalid count value"))
 		.unwrap_or(default)
 }
 
@@ -67,7 +67,7 @@ fn generator_rapid(
 {
 	let count = get_count(&options, 200);
 	let nsec = options.get("nsec")
-		.map(|s| s.parse().unwrap_or(30_000))
+		.map(|s| s.parse().expect("invalid nsec value"))
 		.unwrap_or(30_000);
 	let step = TimeSpec::new(0, nsec);
 	for _ in 0..count {
