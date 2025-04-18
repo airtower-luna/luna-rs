@@ -110,7 +110,8 @@ pub fn run(
 
 	let et = if echo {
 		let s = sock.as_raw_fd();
-		Some(thread::spawn(move || echo_log(s, buffer_size, server, echo_logger)))
+		Some(thread::Builder::new().name("echo receiver".to_string()).spawn(
+			move || echo_log(s, buffer_size, server, echo_logger))?)
 	} else {
 		None
 	};
