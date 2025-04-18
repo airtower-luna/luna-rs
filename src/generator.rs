@@ -162,7 +162,8 @@ fn generator_vary_size(
 	-> Result<thread::JoinHandle<()>, Box<dyn std::error::Error>>
 {
 	let count = parse_or_default!(options, "count", 20);
-	let step = TimeSpec::new(0, 1_000_000);
+	let delay = parse_interval(&options)?
+		.unwrap_or(TimeSpec::new(0, 1_000_000));
 	let max_size = 1500;
 	Ok(thread::Builder::new()
 		.name("vary generator".to_string())
@@ -171,7 +172,7 @@ fn generator_vary_size(
 			let mut grow = true;
 			for _ in 0..count {
 				target.send(
-					PacketData { delay: step, size: max_size.min(s) }
+					PacketData { delay, size: max_size.min(s) }
 				).unwrap();
 				if grow {
 					s *= 2;
