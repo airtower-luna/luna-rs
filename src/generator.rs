@@ -164,7 +164,7 @@ fn generator_vary_size(
 	let count = parse_or_default!(options, "count", 20);
 	let delay = parse_interval(&options)?
 		.unwrap_or(TimeSpec::new(0, 1_000_000));
-	let max_size = 1500;
+	let max_size = parse_or_default!(options, "max-size", 1452);
 	Ok(thread::Builder::new()
 		.name("vary generator".to_string())
 		.spawn(move || {
@@ -258,12 +258,13 @@ mod tests {
 
 	#[test]
 	fn vary() -> Result<(), Box<dyn std::error::Error>> {
-		let options = HashMap::new();
+		let mut options = HashMap::new();
+		options.insert("max-size".to_string(), "3000".to_string());
 		let receiver = Generator::Vary.run(options)?;
 		let step = TimeSpec::new(0, 1_000_000);
 		let size = vec![
-			21, 42, 84, 168, 336, 672, 1344, 1500, 1344, 672,
-			336, 168, 84, 42, 21, 42, 84, 168, 336, 672];
+			21, 42, 84, 168, 336, 672, 1344, 2688, 3000, 2688,
+			1344, 672, 336, 168, 84, 42, 21, 42, 84, 168];
 		for i in 0..20 {
 			let pkt = receiver.recv()?;
 			println!("{i} {pkt:?}");
