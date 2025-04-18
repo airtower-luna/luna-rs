@@ -66,7 +66,10 @@ fn generator_rapid(
 	target: mpsc::Sender<PacketData>, options: HashMap<String, String>)
 {
 	let count = get_count(&options, 200);
-	let step = TimeSpec::new(0, 30_000);
+	let nsec = options.get("nsec")
+		.map(|s| s.parse().unwrap_or(30_000))
+		.unwrap_or(30_000);
+	let step = TimeSpec::new(0, nsec);
 	for _ in 0..count {
 		target.send(PacketData { delay: step, size: MIN_SIZE }).unwrap();
 	}
