@@ -79,24 +79,6 @@ impl Server {
 			return Err(Box::new(Error::new(ErrorKind::NotConnected, "socket not bound")));
 		};
 
-		// prevent swapping, if possible
-		crate::accept_noperm!(
-			crate::with_capability(|| {
-				mman::mlockall(
-					mman::MlockAllFlags::MCL_CURRENT
-						| mman::MlockAllFlags::MCL_FUTURE)
-			}, caps::Capability::CAP_IPC_LOCK),
-			"no permission to lock memory");
-
-		crate::accept_noperm!(
-			crate::with_capability(
-				|| set_rt_prio(20),
-				caps::Capability::CAP_SYS_NICE),
-			"no permission to set realtime priority");
-
-		caps::clear(None, caps::CapSet::Effective)?;
-		caps::clear(None, caps::CapSet::Permitted)?;
-
 		let flags = socket::MsgFlags::empty();
 		let mut buffer = vec![0u8; self.buf_size];
 		let mut cmsgspace = cmsg_space!(TimeSpec);
@@ -105,6 +87,24 @@ impl Server {
 		if self.logger.is_none() {
 			println!("{}", ReceivedPacket::header());
 		}
+
+		crate::accept_noperm!(
+			crate::with_capability(
+				|| set_rt_prio(20),
+				caps::Capability::CAP_SYS_NICE),
+			"no permission to set realtime priority");
+
+		// Prevent swapping, if possible. Needs to be done as late as
+		// possible so all allocations needed for the loop are covered
+		// with MCL_CURRENT.
+		crate::accept_noperm!(
+			crate::with_capability(
+				|| mman::mlockall(mman::MlockAllFlags::MCL_CURRENT),
+				caps::Capability::CAP_IPC_LOCK),
+			"no permission to lock memory");
+
+		caps::clear(None, caps::CapSet::Effective)?;
+		caps::clear(None, caps::CapSet::Permitted)?;
 
 		let rusage_pre = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
 

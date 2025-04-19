@@ -124,23 +124,20 @@ pub fn run(
 		None
 	};
 
-	// Prevent swapping, if possible. Needs to be done after starting
-	// threads because otherwise starting threads will fail if there's
-	// not enough memory to do so without going over the limit of what
-	// can be locked without CAP_IPC_LOCK.
+	let mut t = None;
+	let mut seq: u32 = 0;
+
+	// Prevent swapping, if possible. Needs to be done as late as
+	// possible so all allocations needed for the loop are covered
+	// with MCL_CURRENT.
 	crate::accept_noperm!(
-		crate::with_capability(|| {
-			mman::mlockall(
-				mman::MlockAllFlags::MCL_CURRENT
-					| mman::MlockAllFlags::MCL_FUTURE)
-		}, caps::Capability::CAP_IPC_LOCK),
+		crate::with_capability(
+			|| mman::mlockall(mman::MlockAllFlags::MCL_CURRENT),
+			caps::Capability::CAP_IPC_LOCK),
 		"no permission to lock memory");
 
 	caps::clear(None, caps::CapSet::Effective)?;
 	caps::clear(None, caps::CapSet::Permitted)?;
-
-	let mut t = None;
-	let mut seq: u32 = 0;
 
 	let rusage_pre = resource::getrusage(resource::UsageWho::RUSAGE_THREAD)?;
 
