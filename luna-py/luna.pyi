@@ -1,9 +1,11 @@
 from decimal import Decimal
-from typing import Self
+from typing import Self, final
 
+__all__ = ['Client', 'MIN_SIZE', 'PacketRecord', 'Server']
 MIN_SIZE: int
 
 
+@final
 class PacketRecord:
     source: str
     receive_time: Decimal
@@ -13,6 +15,7 @@ class PacketRecord:
     def __str__(self) -> str: ...
 
 
+@final
 class Server:
     buffer_size: int
     bind: str
@@ -31,10 +34,12 @@ class Server:
     def __next__(self) -> PacketRecord: ...
 
 
+@final
 class Client:
     buffer_size: int
     echo: bool
     running: bool
+    server: str
 
     def __init__(
             self, server: str, buffer_size: int = 1500, echo: bool = True) \

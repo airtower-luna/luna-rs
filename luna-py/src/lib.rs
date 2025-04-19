@@ -148,7 +148,7 @@ impl Client {
 		}).map_err(|e| PyException::new_err(e))
 	}
 
-	fn put(&self, py: Python<'_>, time: (i64, i64), size: usize) -> PyResult<()> {
+	fn put(&self, py: Python<'_>, delay: (i64, i64), size: usize) -> PyResult<()> {
 		if size > self.buffer_size {
 			return Err(PyValueError::new_err(
 				"size too large, increase buffer_size"));
@@ -160,7 +160,7 @@ impl Client {
 			let r = self.generator.lock().unwrap();
 			if let Some(s) = r.as_ref() {
 				let _ = s.send(PacketData {
-					delay: TimeSpec::new(time.0, time.1),
+					delay: TimeSpec::new(delay.0, delay.1),
 					size,
 				});
 				Ok(())
