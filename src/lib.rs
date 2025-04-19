@@ -223,4 +223,41 @@ mod tests {
 
 		Ok(())
 	}
+
+	#[test]
+	fn rt_priority() {
+		let offset = 5;
+		match set_rt_prio(offset) {
+			Err(e) => assert_eq!(e.kind(), ErrorKind::PermissionDenied),
+			Ok(_) => {
+				if unsafe { libc::getuid() } == 0 {
+					panic!("Don't run tests as root!")
+				}
+				let min_rt_prio = unsafe {
+					libc::sched_get_priority_min(libc::SCHED_RR)
+				};
+				#[cfg(not(target_env = "musl"))]
+				let mut sparam = libc::sched_param {
+					sched_priority: 0,
+				};
+				#[cfg(target_env = "musl")]
+				let sparam = libc::sched_param {
+					sched_priority: 0,
+					sched_ss_low_priority: 0,
+					sched_ss_repl_period: timespec { tv_sec: 0, tv_nsec: 0 },
+					sched_ss_init_budget: timespec { tv_sec: 0, tv_nsec: 0 },
+					sched_ss_max_repl: 0,
+				};
+				let mut policy: libc::c_int = 0;
+				let ret = unsafe {
+					let thread_id = libc::pthread_self();
+					libc::pthread_getschedparam(
+						thread_id, &mut policy, &mut sparam)
+				};
+				assert_eq!(ret, 0);
+				assert_eq!(policy, libc::SCHED_RR);
+				assert_eq!(sparam.sched_priority, min_rt_prio + offset);
+			},
+		}
+	}
 }

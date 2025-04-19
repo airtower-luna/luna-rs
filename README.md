@@ -25,13 +25,6 @@ $ cargo run -- client -e
 See `-h` output for options. "Generators" set how packets are sent,
 see below for options.
 
-The process will try to lock its memory in RAM (no swapping) and
-elevate the main thread to realtime priority for best timing behavior,
-doing so requires the `CAP_SYS_NICE` and `CAP_IPC_LOCK` capabilities
-(the latter might not be necessary depending on rlimits on your
-system). It will still run without those capabilities, just with error
-messages during start.
-
 
 ## Built-in generators
 
@@ -91,3 +84,33 @@ $ cargo run -- client -e --py-generator examples/generator_random.py -O count=10
 Python generators can accept options the same way the built-in
 generators do (see above), all generator options passed on the command
 line will be passed to the `generate` function as a `dict[str, str]`.
+
+
+## Capabilities
+
+During startup both client and server try to lock process memory in
+RAM (no swapping) and to assign their main thread a realtime
+scheduling priority to maximize timing precision. This requires the
+capabilities `CAP_SYS_NICE` (for increasing priority) and
+`CAP_IPC_LOCK` (to lock memory, might not be needed with an unusually
+high resource limit for unprivileged locked memory). It will still run
+without those capabilities, just with warning messages during start.
+
+To add the capabilities for a single command, you can use `capsh` to
+set ambient capabilities. For example, note the `--user` option to
+restore the user after `sudo`:
+
+```sh
+$ sudo capsh --user=$USER --caps=cap_sys_nice,cap_ipc_lock+ipe --addamb=cap_sys_nice,cap_ipc_lock -- -c "cargo run -- client"
+```
+
+Alternatively, you can assign capabilities to the binary on start:
+
+```sh
+$ sudo setcap cap_sys_nice,cap_ipc_lock=pe ~/.cargo/bin/luna-rs
+```
+
+This is similar to setuid, but assigns only the specific capabilities,
+not full root privileges. Setting file capabilities is mostly useful
+on a binary installed by `cargo install`, not during development,
+because the binaries in `target/` are recreated all the time.
