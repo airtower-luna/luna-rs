@@ -78,16 +78,21 @@ impl Server {
 		} else {
 			return Err(Box::new(Error::new(ErrorKind::NotConnected, "socket not bound")));
 		};
-		// prevent swapping, if possible
-		if let Err(e) = mman::mlockall(
-			mman::MlockAllFlags::MCL_CURRENT
-				| mman::MlockAllFlags::MCL_FUTURE) {
-			eprintln!("could not lock memory: {}", e);
-		}
 
-		if let Err(err) = set_rt_prio(20) {
-			eprintln!("could not set realtime priority: {}", err);
-		}
+		// prevent swapping, if possible
+		crate::accept_noperm!(
+			crate::with_capability(|| {
+				mman::mlockall(
+					mman::MlockAllFlags::MCL_CURRENT
+						| mman::MlockAllFlags::MCL_FUTURE)
+			}, caps::Capability::CAP_IPC_LOCK),
+			"no permission to lock memory");
+
+		crate::accept_noperm!(
+			crate::with_capability(
+				|| set_rt_prio(20),
+				caps::Capability::CAP_SYS_NICE),
+			"no permission to set realtime priority");
 
 		let flags = socket::MsgFlags::empty();
 		let mut buffer = vec![0u8; self.buf_size];

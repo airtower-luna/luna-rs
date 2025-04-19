@@ -2,7 +2,7 @@ use crate::{set_rt_prio, PacketData, ReceivedPacket, ECHO_FLAG};
 
 use nix::sys::socket::SockaddrStorage;
 
-use std::io::{Error, IoSlice, IoSliceMut};
+use std::io::{Error, ErrorKind, IoSlice, IoSliceMut};
 use std::net::SocketAddr;
 use std::os::fd::AsRawFd;
 use std::sync::mpsc;
@@ -85,9 +85,11 @@ pub fn run(
 	echo_logger: Option<mpsc::Sender<ReceivedPacket>>)
 	-> Result<(), Box<dyn std::error::Error>>
 {
-	if let Err(err) = set_rt_prio(20) {
-		eprintln!("could not set realtime priority: {}", err);
-	}
+	crate::accept_noperm!(
+		crate::with_capability(
+			|| set_rt_prio(20),
+			caps::Capability::CAP_SYS_NICE),
+		"no permission to set realtime priority");
 
 	let sock = socket::socket(
 		if server.is_ipv6() {
@@ -117,14 +119,16 @@ pub fn run(
 	};
 
 	// Prevent swapping, if possible. Needs to be done after starting
-	// threads because otherwise it'll fail if there's not enough
-	// memory to do so without going over the limit of what can be
-	// locked without CAP_IPC_LOCK.
-	if let Err(e) = mman::mlockall(
-		mman::MlockAllFlags::MCL_CURRENT
-			| mman::MlockAllFlags::MCL_FUTURE) {
-		eprintln!("could not lock memory: {}", e);
-	}
+	// threads because otherwise starting threads will fail if there's
+	// not enough memory to do so without going over the limit of what
+	// can be locked without CAP_IPC_LOCK.
+	crate::accept_noperm!(
+		crate::with_capability(|| {
+			mman::mlockall(
+				mman::MlockAllFlags::MCL_CURRENT
+					| mman::MlockAllFlags::MCL_FUTURE)
+		}, caps::Capability::CAP_IPC_LOCK),
+		"no permission to lock memory");
 
 	let mut t = None;
 	let mut seq: u32 = 0;

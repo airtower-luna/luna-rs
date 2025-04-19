@@ -22,6 +22,25 @@ macro_rules! parse_int {
 }
 
 
+macro_rules! accept_noperm {
+	($call:expr, $warn:literal) => {{
+		if let Err(e) = $call {
+			match e.downcast::<Error>() {
+				Ok(e) => {
+					if e.kind() == ErrorKind::PermissionDenied {
+						eprintln!("{}: {}", $warn, e);
+					} else {
+						return Err(e);
+					}
+				},
+				Err(e) => { return Err(e); }
+			}
+		}
+	}};
+}
+pub(crate) use accept_noperm;
+
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct PacketData {
 	pub delay: TimeSpec,
@@ -29,20 +48,34 @@ pub struct PacketData {
 }
 
 
-/// Enable realtime scheduling for the current thread. The offset is
-/// the priority relative to the minimum realtime priority. Requires
-/// CAP_SYS_NICE capability in permitted set.
-pub fn set_rt_prio(offset: i32) -> Result<(), Box<dyn std::error::Error>> {
-	if caps::has_cap(
-		None, caps::CapSet::Permitted, caps::Capability::CAP_SYS_NICE)?
+/// Add the given capability to the effective set, run the given
+/// function, drop the capability from the effective set.
+pub fn with_capability
+	<T, E: std::error::Error + 'static, U: FnOnce() -> Result<T, E>>
+	(func: U, cap: caps::Capability)
+	 -> Result<T, Box<dyn std::error::Error>>
+{
+	if caps::has_cap(None, caps::CapSet::Permitted, cap)?
 	{
-		caps::raise(
-			None, caps::CapSet::Effective, caps::Capability::CAP_SYS_NICE)?;
+		caps::raise(None, caps::CapSet::Effective, cap)?;
 	} else {
 		return Err(Box::new(Error::new(
 			ErrorKind::PermissionDenied,
-			"missing CAP_SYS_NICE, cannot enable realtime scheduling")));
+			format!("capability {cap} not in permitted set"))));
 	}
+	let ret = func();
+	caps::drop(None, caps::CapSet::Effective, cap)?;
+	match ret {
+		Ok(r) => Ok(r),
+		Err(e) => Err(Box::new(e)),
+	}
+}
+
+
+/// Enable realtime scheduling for the current thread. The offset is
+/// the priority relative to the minimum realtime priority. Requires
+/// CAP_SYS_NICE capability in permitted set.
+pub fn set_rt_prio(offset: i32) -> Result<(), Error> {
 	let min_rt_prio = unsafe {
 		libc::sched_get_priority_min(libc::SCHED_RR)
 	};
@@ -68,10 +101,8 @@ pub fn set_rt_prio(offset: i32) -> Result<(), Box<dyn std::error::Error>> {
 		let thread_id = libc::pthread_self();
 		libc::pthread_setschedparam(thread_id, libc::SCHED_RR, &sparam)
 	};
-	caps::drop(
-		None, caps::CapSet::Effective, caps::Capability::CAP_SYS_NICE)?;
 	if ret != 0 {
-		Err(Box::new(Error::from_raw_os_error(ret)))
+		Err(Error::from_raw_os_error(ret))
 	} else {
 		Ok(())
 	}
@@ -243,7 +274,10 @@ mod tests {
 	#[test]
 	fn rt_priority() {
 		let offset = 5;
-		match set_rt_prio(offset) {
+		match with_capability(
+			|| set_rt_prio(offset),
+			caps::Capability::CAP_SYS_NICE)
+		{
 			Err(e) => assert_eq!(e.downcast::<Error>().unwrap().kind(), ErrorKind::PermissionDenied),
 			Ok(_) => {
 				if unsafe { libc::geteuid() } == 0 {
