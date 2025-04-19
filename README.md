@@ -104,13 +104,16 @@ restore the user after `sudo`:
 $ sudo capsh --user=$USER --caps=cap_sys_nice,cap_ipc_lock+ipe --addamb=cap_sys_nice,cap_ipc_lock -- -c "cargo run -- client"
 ```
 
-Alternatively, you can assign capabilities to the binary on start:
+Alternatively, you can assign capabilities to the binary on
+start. Changing the *permitted* set is sufficient, `luna-rs` will make
+the capabilities *effective* when needed, and drop them after startup:
 
 ```sh
-$ sudo setcap cap_sys_nice,cap_ipc_lock=pe ~/.cargo/bin/luna-rs
+$ sudo setcap cap_sys_nice,cap_ipc_lock=p ~/.cargo/bin/luna-rs
 ```
 
-This is similar to setuid, but assigns only the specific capabilities,
-not full root privileges. Setting file capabilities is mostly useful
-on a binary installed by `cargo install`, not during development,
-because the binaries in `target/` are recreated all the time.
+This is similar to setuid, but assigns only the specific necessary
+capabilities, not full root privileges. Setting file capabilities is
+mostly useful on a binary installed by `cargo install`, not during
+development, because the binaries in `target/` are recreated all the
+time.

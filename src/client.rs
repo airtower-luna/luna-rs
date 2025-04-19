@@ -27,6 +27,12 @@ fn echo_log(
 	let server_addr = SockaddrStorage::from(server);
 	let mut count: usize = 0;
 
+	// dropping capabilities should always work
+	caps::clear(None, caps::CapSet::Effective)
+		.expect("could not drop effective capabilities");
+	caps::clear(None, caps::CapSet::Permitted)
+		.expect("could not drop effective capabilities");
+
 	if logger.is_none() {
 		println!("{}", ReceivedPacket::header());
 	}
@@ -129,6 +135,9 @@ pub fn run(
 					| mman::MlockAllFlags::MCL_FUTURE)
 		}, caps::Capability::CAP_IPC_LOCK),
 		"no permission to lock memory");
+
+	caps::clear(None, caps::CapSet::Effective)?;
+	caps::clear(None, caps::CapSet::Permitted)?;
 
 	let mut t = None;
 	let mut seq: u32 = 0;

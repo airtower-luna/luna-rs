@@ -94,6 +94,9 @@ impl Server {
 				caps::Capability::CAP_SYS_NICE),
 			"no permission to set realtime priority");
 
+		caps::clear(None, caps::CapSet::Effective)?;
+		caps::clear(None, caps::CapSet::Permitted)?;
+
 		let flags = socket::MsgFlags::empty();
 		let mut buffer = vec![0u8; self.buf_size];
 		let mut cmsgspace = cmsg_space!(TimeSpec);
