@@ -1,2 +1,7 @@
 /target
 *.cpython-*.so
+
+# coverage reporting
+/default_*.profraw
+/merged.profdata
+/coverage/
