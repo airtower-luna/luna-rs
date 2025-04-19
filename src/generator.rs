@@ -19,7 +19,7 @@ use crate::{PacketData, MIN_SIZE};
 #[derive(Debug)]
 pub struct InvalidOption {
 	pub option: String,
-	pub source: Box<dyn std::error::Error>,
+	source: Box<dyn std::error::Error>,
 }
 
 impl Display for InvalidOption {
@@ -236,6 +236,8 @@ fn generator_py(
 mod tests {
 	use super::*;
 
+	use std::{error::Error, num::IntErrorKind};
+
 	#[test]
 	fn default() -> Result<(), Box<dyn std::error::Error>> {
 		let count = 20;
@@ -303,6 +305,23 @@ mod tests {
 	}
 
 	#[test]
+	fn invalid_count() {
+		let mut go = HashMap::new();
+		go.insert("msec".to_string(), "abc".to_string());
+		let func = |options: &HashMap<String, String>| {
+			Ok::<i32, Box<dyn std::error::Error>>(
+				parse_or_default!(options, "msec", 0))
+		};
+		let err = func(&go).unwrap_err().downcast::<InvalidOption>().unwrap();
+		eprintln!("{err:?}");
+		assert_eq!(format!("{err}"), "Option \"msec\" has an invalid value");
+		let source = Box::new(err.deref().source().unwrap());
+		assert_eq!(
+			*source.downcast_ref::<ParseIntError>().unwrap().kind(),
+			IntErrorKind::InvalidDigit);
+	}
+
+	#[test]
 	fn timespec() {
 		assert_eq!(parse_timespec(".002"), Ok(TimeSpec::new(0, 2_000_000)));
 		assert_eq!(parse_timespec("1.02"), Ok(TimeSpec::new(1, 20_000_000)));
@@ -318,18 +337,31 @@ mod tests {
 	#[test]
 	fn time_definition() -> Result<(), Box<dyn std::error::Error>> {
 		let mut go = HashMap::new();
+		// empty HashMap, no result
 		assert_eq!(parse_interval(&go)?, None);
+		// two values set, error
 		go.insert("msec".to_string(), "1".to_string());
 		go.insert("usec".to_string(), "1000".to_string());
 		assert!(parse_interval(&go).is_err());
+		// remove one, passes with usec value
 		go.remove("msec");
 		assert_eq!(parse_interval(&go)?, Some(TimeSpec::new(0, 1_000_000)));
 		go.clear();
+		// msec value high enough to set seconds
 		go.insert("msec".to_string(), "2020".to_string());
 		assert_eq!(parse_interval(&go)?, Some(TimeSpec::new(2, 20_000_000)));
 		go.clear();
+		// nsec value
+		go.insert("nsec".to_string(), "50".to_string());
+		assert_eq!(parse_interval(&go)?, Some(TimeSpec::new(0, 50)));
+		go.clear();
+		// interval value
 		go.insert("interval".to_string(), "0.001".to_string());
 		assert_eq!(parse_interval(&go)?, Some(TimeSpec::new(0, 1_000_000)));
+		go.clear();
+		// invalid interval value
+		go.insert("interval".to_string(), "a.001".to_string());
+		assert!(parse_interval(&go).is_err());
 		Ok(())
 	}
 }
