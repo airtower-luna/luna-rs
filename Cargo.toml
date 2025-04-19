@@ -8,6 +8,7 @@ readme = 'README.md'
 repository = 'https://github.com/airtower-luna/luna-rs'
 
 [dependencies]
+caps = { version = '0.5' }
 clap = { version = '4', features = ['cargo', 'derive'] }
 libc = '0.2.171'
 nix = { version = '0.29.0', features = ['mman', 'net', 'resource', 'signal', 'socket', 'time', 'uio'] }

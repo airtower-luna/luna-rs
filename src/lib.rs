@@ -31,8 +31,18 @@ pub struct PacketData {
 
 /// Enable realtime scheduling for the current thread. The offset is
 /// the priority relative to the minimum realtime priority. Requires
-/// CAP_SYS_NICE capability.
-pub fn set_rt_prio(offset: i32) -> Result<(), Error> {
+/// CAP_SYS_NICE capability in permitted set.
+pub fn set_rt_prio(offset: i32) -> Result<(), Box<dyn std::error::Error>> {
+	if caps::has_cap(
+		None, caps::CapSet::Permitted, caps::Capability::CAP_SYS_NICE)?
+	{
+		caps::raise(
+			None, caps::CapSet::Effective, caps::Capability::CAP_SYS_NICE)?;
+	} else {
+		return Err(Box::new(Error::new(
+			ErrorKind::PermissionDenied,
+			"missing CAP_SYS_NICE, cannot enable realtime scheduling")));
+	}
 	let min_rt_prio = unsafe {
 		libc::sched_get_priority_min(libc::SCHED_RR)
 	};
@@ -58,8 +68,10 @@ pub fn set_rt_prio(offset: i32) -> Result<(), Error> {
 		let thread_id = libc::pthread_self();
 		libc::pthread_setschedparam(thread_id, libc::SCHED_RR, &sparam)
 	};
+	caps::drop(
+		None, caps::CapSet::Effective, caps::Capability::CAP_SYS_NICE)?;
 	if ret != 0 {
-		Err(Error::from_raw_os_error(ret))
+		Err(Box::new(Error::from_raw_os_error(ret)))
 	} else {
 		Ok(())
 	}
@@ -148,7 +160,11 @@ impl ReceivedPacket {
 #[cfg(test)]
 mod tests {
 	use std::{
-		collections::HashMap, net::{Ipv6Addr, SocketAddrV6, ToSocketAddrs}, sync::mpsc::{self, RecvError}, thread, time::Duration
+		collections::HashMap,
+		net::{Ipv6Addr, SocketAddrV6, ToSocketAddrs},
+		sync::mpsc::{self, RecvError},
+		thread,
+		time::Duration
 	};
 
 	use generator::Generator;
@@ -228,9 +244,9 @@ mod tests {
 	fn rt_priority() {
 		let offset = 5;
 		match set_rt_prio(offset) {
-			Err(e) => assert_eq!(e.kind(), ErrorKind::PermissionDenied),
+			Err(e) => assert_eq!(e.downcast::<Error>().unwrap().kind(), ErrorKind::PermissionDenied),
 			Ok(_) => {
-				if unsafe { libc::getuid() } == 0 {
+				if unsafe { libc::geteuid() } == 0 {
 					panic!("Don't run tests as root!")
 				}
 				let min_rt_prio = unsafe {
@@ -257,6 +273,12 @@ mod tests {
 				assert_eq!(ret, 0);
 				assert_eq!(policy, libc::SCHED_RR);
 				assert_eq!(sparam.sched_priority, min_rt_prio + offset);
+				// capability has been dropped
+				assert_eq!(
+					caps::has_cap(
+						None, caps::CapSet::Effective,
+						caps::Capability::CAP_SYS_NICE).unwrap(),
+					false);
 			},
 		}
 	}
