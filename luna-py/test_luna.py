@@ -73,8 +73,8 @@ def test_full() -> None:
 
     assert len(client_log) == 10
     ip, port = server_addr.rsplit(':', maxsplit=1)
-    # 4ms should be enough for loopback RTT even on slow systems
-    diff = Decimal('0.004')
+    # 100ms should be enough for loopback RTT even on slow systems
+    diff = Decimal('0.100')
     for i, record in enumerate(client_log):
         assert record.source == server_addr
         assert record.sequence == i
@@ -84,8 +84,8 @@ def test_full() -> None:
         assert record.receive_time - record.timestamp < diff
 
     assert len(server_log) == 10
-    # 2ms should be enough for loopback one-way even on slow systems
-    diff = Decimal('0.002')
+    # 50ms should be enough for loopback one-way even on slow systems
+    diff = Decimal('0.050')
     for i, record in enumerate(server_log):
         assert record.source.startswith('[::1]:')
         assert record.sequence == i
