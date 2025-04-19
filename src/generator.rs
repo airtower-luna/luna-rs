@@ -325,6 +325,9 @@ mod tests {
 		go.remove("msec");
 		assert_eq!(parse_interval(&go)?, Some(TimeSpec::new(0, 1_000_000)));
 		go.clear();
+		go.insert("msec".to_string(), "2020".to_string());
+		assert_eq!(parse_interval(&go)?, Some(TimeSpec::new(2, 20_000_000)));
+		go.clear();
 		go.insert("interval".to_string(), "0.001".to_string());
 		assert_eq!(parse_interval(&go)?, Some(TimeSpec::new(0, 1_000_000)));
 		Ok(())
