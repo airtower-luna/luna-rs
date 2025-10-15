@@ -21,8 +21,8 @@ class Server:
     bind: str
     running: bool
 
-    def __init__(self, bind: str, port: int = 7800, buffer_size: int = 1500) \
-            -> None:
+    def __new__(cls, bind: str, port: int = 7800, buffer_size: int = 1500) \
+            -> Self:
         ...
 
     def start(self) -> None: ...
@@ -41,9 +41,9 @@ class Client:
     running: bool
     server: str
 
-    def __init__(
-            self, server: str, buffer_size: int = 1500, echo: bool = True) \
-            -> None:
+    def __new__(
+            cls, server: str, buffer_size: int = 1500, echo: bool = True) \
+            -> Self:
         ...
 
     def start(self) -> None: ...
