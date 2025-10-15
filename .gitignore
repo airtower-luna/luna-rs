@@ -1,3 +1,7 @@
+# local config
+/.cargo
+
+# build output
 /target
 *.cpython-*.so
 
