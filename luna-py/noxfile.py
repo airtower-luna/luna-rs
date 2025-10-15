@@ -1,5 +1,7 @@
 import nox
 
+nox.options.download_python = 'never'
+
 
 @nox.session(python=['3.13'])
 def ci(session):
