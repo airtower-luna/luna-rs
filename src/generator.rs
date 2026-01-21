@@ -196,8 +196,8 @@ fn generator_py(
     use pyo3::prelude::*;
 	use pyo3::ffi::c_str;
 
-	pyo3::prepare_freethreaded_python();
-	Python::with_gil(|py| {
+	Python::initialize();
+	Python::attach(|py| {
 		let generator = PyModule::from_code(
 			py,
 			generator_code,
@@ -219,7 +219,7 @@ fn generator_py(
 			})?;
 		PyResult::Ok(())
 	}).inspect_err(
-		|e| Python::with_gil(|py| {
+		|e| Python::attach(|py| {
 			eprintln!(
 				"Generator module failed: {}{}",
 				e.traceback(py)

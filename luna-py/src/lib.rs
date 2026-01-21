@@ -9,7 +9,7 @@ use nix::{errno::Errno, sys::{socket::SockaddrStorage, time::TimeSpec}};
 use pyo3::{
 	exceptions::{PyException, PyOSError, PyValueError},
 	prelude::*,
-	sync::GILOnceCell,
+	sync::PyOnceLock,
 	types::{PyTraceback, PyType}
 };
 
@@ -18,7 +18,7 @@ fn timespec_to_decimal<'py>(
 	py: Python<'py>, time: &TimeSpec)
 	-> PyResult<Bound<'py, PyAny>>
 {
-	static DECIMAL: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+	static DECIMAL: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 	DECIMAL.import(py, "decimal", "Decimal")?
 		.call1((format!("{}.{}", time.tv_sec(), time.tv_nsec()),))
 }
@@ -115,7 +115,7 @@ impl Client {
 	}
 
 	fn start(&self, py: Python<'_>) -> PyResult<()> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let gen_receiver = {
 				let (gen_sender, gen_receiver) = mpsc::channel::<PacketData>();
 				let _ = self.generator.lock().unwrap().insert(gen_sender);
@@ -156,7 +156,7 @@ impl Client {
 			return Err(PyValueError::new_err(
 				format!("size smaller than minimum ({MIN_SIZE})")));
 		}
-		py.allow_threads(|| {
+		py.detach(|| {
 			let r = self.generator.lock().unwrap();
 			if let Some(s) = r.as_ref() {
 				let _ = s.send(PacketData {
@@ -171,7 +171,7 @@ impl Client {
 	}
 
 	fn close(&self, py: Python<'_>) {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let mut r = self.generator.lock().unwrap();
 			r.take();
 		});
@@ -179,7 +179,7 @@ impl Client {
 
 	#[getter]
 	fn running(&self, py: Python<'_>) -> bool {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let r = self.running.lock().unwrap();
 			match &*r {
 				None => false,
@@ -189,7 +189,7 @@ impl Client {
 	}
 
 	fn join(&self, py: Python<'_>) -> PyResult<()> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let mut r = self.running.lock().unwrap();
 			match r.take().map(|t| t.join()) {
 				None => Ok(()),
@@ -225,7 +225,7 @@ impl Client {
 	}
 
 	fn __next__(&self, py: Python<'_>) -> Option<PacketRecord> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let guard = self.log.lock().unwrap();
 			match guard.as_ref()
 				.map(|r| r.recv())
@@ -272,7 +272,7 @@ impl Server {
 	}
 
 	pub fn start(&self, py: Python<'_>) -> PyResult<()> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			{
 				let r = self.running.lock().unwrap();
 				match *r {
@@ -308,14 +308,14 @@ impl Server {
 
 	#[getter]
 	pub fn bind(&self, py: Python<'_>) -> String {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let b = self.bind.lock().unwrap();
 			format!("{}", b)
 		})
 	}
 
 	pub fn stop(&self, py: Python<'_>) -> PyResult<()> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let mut h = self.handle.lock().unwrap();
 			match h.take() {
 				None => Ok(()),
@@ -326,7 +326,7 @@ impl Server {
 
 	#[getter]
 	fn running(&self, py: Python<'_>) -> bool {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let r = self.running.lock().unwrap();
 			match &*r {
 				None => false,
@@ -336,7 +336,7 @@ impl Server {
 	}
 
 	fn join(&self, py: Python<'_>) -> PyResult<()> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let mut r = self.running.lock().unwrap();
 			match r.take().map(|t| t.join()) {
 				None => Ok(()),
@@ -372,7 +372,7 @@ impl Server {
 	}
 
 	fn __next__(&self, py: Python<'_>) -> Option<PacketRecord> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let guard = self.log.lock().unwrap();
 			match guard.as_ref()
 				.map(|r| r.recv())
