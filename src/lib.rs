@@ -89,9 +89,11 @@ pub fn set_rt_prio(offset: i32) -> Result<(), Error> {
 	#[cfg(target_env = "musl")]
 	let sparam = libc::sched_param {
 		sched_priority: max_rt_prio.min(min_rt_prio + offset),
-		// the following four values are required with musl, but
-		// shouldn't matter because we use SCHED_RR, not
-		// SCHED_SPORADIC ("ss" is short for "sporadic server")
+		// The following four values are required when using the libc
+		// crate with musl, but actually ignored by musl since
+		// 2019. Since 0.2.179 libc warns they are deprecated, but
+		// they still must be initialized.
+		// https://git.musl-libc.org/cgit/musl/commit/include/sched.h?id=827aa8fbcac89a63c6efb986871663861500cd13
 		sched_ss_low_priority: 0,
 		sched_ss_repl_period: timespec { tv_sec: 0, tv_nsec: 0 },
 		sched_ss_init_budget: timespec { tv_sec: 0, tv_nsec: 0 },
